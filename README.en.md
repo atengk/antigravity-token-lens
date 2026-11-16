@@ -44,11 +44,19 @@ Antigravity automatically discovers plugins under `~/.gemini/config/plugins/`.
 
 ### Option 1: One-line `git clone` (Recommended)
 
+**Windows CMD:**
+
+```bat
+git clone https://github.com/atengk/antigravity-token-lens.git "%USERPROFILE%\.gemini\config\plugins\token-lens"
+```
+
 **Windows PowerShell:**
 
 ```powershell
-git clone https://github.com/atengk/antigravity-token-lens.git "$HOME\.gemini\config\plugins\token-lens"
+git clone https://github.com/atengk/antigravity-token-lens.git "$env:USERPROFILE\.gemini\config\plugins\token-lens"
 ```
+
+> Note: Do not paste PowerShell variables (`$env:USERPROFILE` / `$HOME`) into Windows CMD, or CMD will create a literal folder named `$HOME`.
 
 **macOS / Linux:**
 
@@ -58,7 +66,7 @@ git clone https://github.com/atengk/antigravity-token-lens.git ~/.gemini/config/
 
 ### Option 2: One-line Installer Script (Works even without Git)
 
-**Windows PowerShell:**
+**Windows PowerShell (run in PowerShell):**
 
 ```powershell
 irm https://raw.githubusercontent.com/atengk/antigravity-token-lens/main/install.ps1 | iex

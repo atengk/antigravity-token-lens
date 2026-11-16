@@ -45,11 +45,19 @@ Antigravity 会自动发现 `~/.gemini/config/plugins/` 下的插件，因此只
 
 ### 方式一：单行 `git clone` 安装（推荐，方便后续 `git pull` 更新）
 
+**Windows CMD（命令提示符）：**
+
+```bat
+git clone https://github.com/atengk/antigravity-token-lens.git "%USERPROFILE%\.gemini\config\plugins\token-lens"
+```
+
 **Windows PowerShell：**
 
 ```powershell
-git clone https://github.com/atengk/antigravity-token-lens.git "$HOME\.gemini\config\plugins\token-lens"
+git clone https://github.com/atengk/antigravity-token-lens.git "$env:USERPROFILE\.gemini\config\plugins\token-lens"
 ```
+
+> 注意：请勿把 PowerShell 的 `$env:USERPROFILE` 或 `$HOME` 变量直接粘贴到 CMD 中执行，否则 CMD 会将其当作字面文件夹名创建。
 
 **macOS / Linux：**
 
@@ -59,7 +67,7 @@ git clone https://github.com/atengk/antigravity-token-lens.git ~/.gemini/config/
 
 ### 方式二：一键脚本安装 / 更新（支持无 Git 环境自动下载压缩包）
 
-**Windows PowerShell：**
+**Windows PowerShell（请在 PowerShell 中执行）：**
 
 ```powershell
 irm https://raw.githubusercontent.com/atengk/antigravity-token-lens/main/install.ps1 | iex
