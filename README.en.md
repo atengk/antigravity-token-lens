@@ -98,7 +98,7 @@ cd antigravity-token-lens
 ## Running Tests
 
 ```bash
-node --test sidecars/panel/tests/*.test.mjs
+node --test
 ```
 
 ---

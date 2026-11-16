@@ -106,7 +106,7 @@ cd antigravity-token-lens
 在仓库或插件根目录运行内建单元测试（零外部依赖）：
 
 ```bash
-node --test sidecars/panel/tests/*.test.mjs
+node --test
 ```
 
 ---
