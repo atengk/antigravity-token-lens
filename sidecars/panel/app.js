@@ -30,8 +30,10 @@
       warnAlert: '上下文占用偏高，建议留意长文件与大输出',
       critAlert: '上下文接近上限，建议执行 /compact 或开启新会话',
       speedTitle: '纯流式速率',
+      speedTitleEst: '估算速率 (含等待)',
       speedTitleE2e: '端到端速率',
       ttftTitle: '首字延迟 TTFT',
+      turnElapsedLabel: '跨步耗时',
       cacheTitle: '缓存命中率',
       latestHit: '本轮',
       savedPrefix: '命中省下',
@@ -84,6 +86,7 @@
       filterRetry: '含重试',
       timingWait: '首字等待',
       timingStream: '流式生成',
+      timingElapsed: '跨步耗时',
       timingTool: '工具执行',
       diagLatencyTitle: '延迟与重试统计',
       diagAvgTtft: '平均 / P95 首字',
@@ -116,8 +119,10 @@
       warnAlert: 'Context usage is rising; watch large tool outputs.',
       critAlert: 'Context nearly full. Consider /compact or starting a new chat.',
       speedTitle: 'Streaming Speed',
+      speedTitleEst: 'Est. Speed (incl. wait)',
       speedTitleE2e: 'E2E Speed',
       ttftTitle: 'TTFT Latency',
+      turnElapsedLabel: 'Elapsed',
       cacheTitle: 'Cache Hit Rate',
       latestHit: 'Last',
       savedPrefix: 'Saved',
@@ -170,6 +175,7 @@
       filterRetry: 'Retried',
       timingWait: 'TTFT Wait',
       timingStream: 'Streaming',
+      timingElapsed: 'Turn Elapsed',
       timingTool: 'Tools',
       diagLatencyTitle: 'Latency & Retries',
       diagAvgTtft: 'Avg / P95 TTFT',
@@ -193,7 +199,6 @@
     focusedConversationId: resolveInitialConversationId(),
     etag: null,
     snapshot: null,
-    conversations: [],
     pollTimer: null,
     clockTimer: null,
     isFetching: false,
@@ -331,43 +336,18 @@
     }
   }
 
-  async function refreshConversations() {
-    try {
-      const q = state.focusedConversationId ? `?conversationId=${encodeURIComponent(state.focusedConversationId)}` : '';
-      const res = await apiFetch(`/api/conversations${q}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      state.conversations = Array.isArray(data.items) ? data.items : [];
-      if (!state.focusedConversationId && state.conversations.length > 0) {
-        state.focusedConversationId = state.conversations[0].id;
-        state.rootConversationId = state.conversations[0].id;
-      }
-      renderConversationSelect();
-    } catch {
-      // 会话列表失败不阻塞主快照轮询
+  function renderConversationTitle(snap) {
+    const titleEl = $('conv-title');
+    if (!titleEl) return;
+    if (!snap || snap.empty || snap.notFound) {
+      titleEl.textContent = '--';
+      titleEl.title = '';
+      return;
     }
-  }
-
-  function renderConversationSelect() {
-    const select = $('select-conversation');
-    const items = [...state.conversations];
-    if (state.focusedConversationId && !items.some((x) => x.id === state.focusedConversationId)) {
-      items.unshift({
-        id: state.focusedConversationId,
-        title: state.snapshot?.conversation?.title || state.focusedConversationId.slice(0, 8),
-        subagentCount: state.snapshot?.totals?.subagentCount || 0,
-      });
-    }
-
-    select.replaceChildren();
-    for (const item of items) {
-      const opt = document.createElement('option');
-      opt.value = item.id;
-      const subTag = item.subagentCount > 0 ? ` · ${item.subagentCount} sub` : '';
-      opt.textContent = `${item.title || item.id.slice(0, 8)}${subTag}`;
-      if (item.id === state.focusedConversationId) opt.selected = true;
-      select.appendChild(opt);
-    }
+    const c = snap.conversation || {};
+    const title = c.title || (c.id ? c.id.slice(0, 8) : '--');
+    titleEl.textContent = title;
+    titleEl.title = c.id ? `${title} (${c.id})` : title;
   }
 
   async function refreshSnapshot(force = false) {
@@ -452,6 +432,8 @@
       $('main-content').classList.add('hidden');
       $('model-badge').textContent = '--';
       $('source-badge').textContent = '--';
+      $('source-badge').title = snap.rpcError || '';
+      renderConversationTitle(snap);
       updateRunningTimer();
       return;
     }
@@ -466,8 +448,10 @@
     const tot = snap.totals || {};
     const prefs = snap.preferences || {};
 
+    renderConversationTitle(snap);
     $('model-badge').textContent = c.model || 'Unknown';
     $('source-badge').textContent = snap.source === 'rpc' ? t('sourceRpc') : t('sourceTranscript');
+    $('source-badge').title = snap.source !== 'rpc' && snap.rpcError ? snap.rpcError : '';
     updateRunningTimer();
 
     // 1. 上下文水位
@@ -507,7 +491,7 @@
     renderMiniBreakdown(ctx.breakdown);
 
     // 2. 速率卡片
-    renderThroughputCard(tp, snap.estimatedSpeed);
+    renderThroughputCard(tp, snap.estimatedSpeed, snap.source === 'transcript');
 
     // 3. 缓存卡片
     $('cache-main').textContent = fmtPct(ch.cumulativeHitRate);
@@ -539,7 +523,10 @@
     const retry = snap.diagnostics?.retry || {};
     const timingParts = [];
     if (tm.totalTtftSec > 0) timingParts.push(`${t('timingWait')} ${fmtSec(tm.totalTtftSec)}`);
-    if (tm.totalStreamingSec > 0) timingParts.push(`${t('timingStream')} ${fmtSec(tm.totalStreamingSec)}`);
+    if (tm.totalStreamingSec > 0) {
+      const streamLbl = snap.source === 'transcript' ? t('timingElapsed') : t('timingStream');
+      timingParts.push(`${streamLbl} ${fmtSec(tm.totalStreamingSec)}`);
+    }
     if (tm.totalToolSec > 0) timingParts.push(`${t('timingTool')} ${fmtSec(tm.totalToolSec)}`);
     if (retry.count > 0) timingParts.push(`${t('retryTag')} ×${retry.count} (+${fmtCompact(retry.totalTokens)})`);
     const timingEl = $('tot-timing-line');
@@ -555,7 +542,6 @@
     renderTurnsTab(snap.turns || []);
     renderSubagentsTab(snap.subagents || []);
     renderDiagnosticsTab(snap);
-    renderConversationSelect();
   }
 
   function renderMiniBreakdown(breakdown) {
@@ -590,10 +576,15 @@
     }
   }
 
-  function renderThroughputCard(tp, estimated) {
-    const isTtft = state.chartMode === 'ttft';
+  function renderThroughputCard(tp, estimated, isTranscript = false) {
+    const isTtft = !isTranscript && state.chartMode === 'ttft';
+    $('btn-toggle-chart').classList.toggle('hidden', isTranscript);
     $('btn-toggle-chart').textContent = isTtft ? 'TTFT' : 'tok/s';
-    $('lbl-speed-title').textContent = isTtft ? t('ttftTitle') : t('speedTitle');
+    $('lbl-speed-title').textContent = isTtft
+      ? t('ttftTitle')
+      : isTranscript
+        ? t('speedTitleEst')
+        : t('speedTitle');
 
     if (isTtft) {
       $('tp-main').textContent = tp.latestTtftSec !== null ? tp.latestTtftSec.toFixed(1) : '—';
@@ -602,7 +593,9 @@
     } else {
       $('tp-main').textContent = fmtRate(tp.latestStreamingTps, estimated);
       $('tp-unit').textContent = 'tok/s';
-      $('tp-sub-line1').textContent = `${t('ttftLabel')} ${fmtSec(tp.latestTtftSec)} · ${t('e2eLabel')} ${fmtRate(tp.latestE2eTps, estimated)}`;
+      $('tp-sub-line1').textContent = isTranscript
+        ? `${t('turnElapsedLabel')} ${fmtSec(tp.latestStreamingSec)}`
+        : `${t('ttftLabel')} ${fmtSec(tp.latestTtftSec)} · ${t('e2eLabel')} ${fmtRate(tp.latestE2eTps, estimated)}`;
     }
 
     const thinkInfo =
@@ -906,9 +899,14 @@
           ? `${fmtCompact(turn.outputTokens)} (${t('thinkingLabel')} ${fmtCompact(turn.thinkingTokens)} + ${t('responseLabel')} ${fmtCompact(turn.responseTokens)})`
           : fmtCompact(turn.outputTokens);
 
+      const timingText =
+        turn.estimatedSpeed && turn.ttftSec === null
+          ? `${t('turnElapsedLabel')} ${fmtSec(turn.streamingSec)}`
+          : `TTFT ${fmtSec(turn.ttftSec)} / ${fmtSec(turn.streamingSec)}`;
+
       stats.innerHTML = [
         `<span>⚡ ${fmtRate(turn.streamingTps, turn.estimatedSpeed)} tok/s</span>`,
-        `<span>⏱ TTFT ${fmtSec(turn.ttftSec)} / ${fmtSec(turn.streamingSec)}</span>`,
+        `<span>⏱ ${timingText}</span>`,
         `<span>🧊 ${fmtPct(turn.cacheHitRate)}</span>`,
         `<span>In ${fmtCompact(turn.inputTokens)} · Cache ${fmtCompact(turn.cacheReadTokens)} · Out ${escHtml(outDetail)}</span>`,
       ].join('');
@@ -1151,7 +1149,6 @@
   function bindEvents() {
     $('btn-lang').addEventListener('click', () => void toggleLanguage());
     $('btn-refresh').addEventListener('click', () => {
-      void refreshConversations();
       void refreshSnapshot(true);
     });
     $('btn-copy-summary').addEventListener('click', () => {
@@ -1164,12 +1161,15 @@
       const target = $('btn-back-parent').dataset.targetId || state.rootConversationId;
       switchConversation(target);
     });
-    $('select-conversation').addEventListener('change', (e) => {
-      switchConversation(e.target.value);
-    });
     $('btn-toggle-chart').addEventListener('click', () => {
       state.chartMode = state.chartMode === 'streaming' ? 'ttft' : 'streaming';
-      if (state.snapshot) renderThroughputCard(state.snapshot.throughput || {}, state.snapshot.estimatedSpeed);
+      if (state.snapshot) {
+        renderThroughputCard(
+          state.snapshot.throughput || {},
+          state.snapshot.estimatedSpeed,
+          state.snapshot.source === 'transcript',
+        );
+      }
     });
 
     $('btn-settings').addEventListener('click', () => {
@@ -1214,7 +1214,6 @@
     localizeStaticUi();
     applyTheme('system');
     bindEvents();
-    void refreshConversations();
     void refreshSnapshot(true);
     state.clockTimer = setInterval(() => {
       if (state.snapshot?.conversation?.isRunning) updateRunningTimer();

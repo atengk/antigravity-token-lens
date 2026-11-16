@@ -18,6 +18,7 @@ const MODEL_ALIASES = new Map([
 
 const MODEL_DEFAULT_LIMITS = new Map([
   ['gemini-4-hydrogen', 512_000],
+  ['gemini-4-argon', 512_000],
   ['gemini-3.8-flash', 1_048_576],
   ['gemini-2.5-pro', 1_048_576],
   ['gemini-2.5-flash', 1_048_576],
@@ -62,6 +63,7 @@ export function resolveModelInfo(rawModel, displayName = null, responseModel = n
   let key = alias?.key || null;
   if (!key && probe) {
     if (probe.includes('gemini-4-hydrogen') || probe.includes('gemini 4 hydrogen')) key = 'gemini-4-hydrogen';
+    else if (probe.includes('gemini-4-argon') || probe.includes('gemini 4 argon')) key = 'gemini-4-argon';
     else if (probe.includes('gemini-3.8-flash') || probe.includes('gemini 3.8 flash')) key = 'gemini-3.8-flash';
     else if (probe.includes('gemini-2.5-pro') || probe.includes('gemini 2.5 pro')) key = 'gemini-2.5-pro';
     else if (probe.includes('gemini-2.5-flash') || probe.includes('gemini 2.5 flash')) key = 'gemini-2.5-flash';
@@ -71,6 +73,15 @@ export function resolveModelInfo(rawModel, displayName = null, responseModel = n
     else if (probe.includes('claude-opus') || probe.includes('claude opus')) key = 'claude-opus-4.6';
     else if (probe.includes('gpt-oss-120b') || probe.includes('gpt oss 120b')) key = 'gpt-oss-120b';
     else if (cleanResp) key = cleanResp.toLowerCase();
+    else {
+      // 对未预置模型名剥离档位后缀（如 (High)/(Thinking)）后归一化，确保用户自定义上限可跨会话复用
+      const normalized = probe
+        .replace(/\s*\([^)]*\)\s*$/g, '')
+        .trim()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      if (normalized) key = normalized;
+    }
   }
 
   return { key, display };

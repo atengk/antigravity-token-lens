@@ -54,6 +54,7 @@ export class PanelService {
   #prefs;
   #paths;
   #prefRevision = 1;
+  #lastRpcError = null;
 
   /**
    * @param {object} deps 服务依赖
@@ -154,13 +155,20 @@ export class PanelService {
 
     try {
       const snapshot = await this.#buildRpcSnapshot(conversationId, preferences, etag, force);
+      this.#lastRpcError = null;
       return { ...snapshot, preferences, hostTheme };
-    } catch {
+    } catch (err) {
+      const rpcError = err instanceof Error ? err.message : String(err || 'RPC unavailable');
+      if (this.#lastRpcError !== rpcError) {
+        this.#lastRpcError = rpcError;
+        console.warn(`[token-lens] RPC snapshot fallback to transcript (${conversationId}): ${rpcError}`);
+      }
       const local = await readLocalConversation(this.#paths.appDataCandidates, conversationId);
       if (!local) {
         return {
           notFound: true,
           conversationId,
+          rpcError,
           preferences,
           hostTheme,
         };
@@ -174,13 +182,17 @@ export class PanelService {
       const subIds = this.#collectLocalSubagentIds(local, conversationId);
       const subagentSummaries = await this.#loadLocalSubagents(subIds, preferences);
       const snapshot = finalizeSnapshot(primary, subagentSummaries, { lang: preferences.lang });
-      return { ...snapshot, etag: nextEtag, preferences, hostTheme };
+      return { ...snapshot, rpcError, etag: nextEtag, preferences, hostTheme };
     }
   }
 
   async #buildRpcSnapshot(conversationId, preferences, clientEtag, force) {
-    const summaries = await this.#lsClient.getSummaries(force);
-    const targetSummary = summaries[conversationId];
+    let summaries = await this.#lsClient.getSummaries(force);
+    let targetSummary = summaries[conversationId];
+    if (!targetSummary && !force) {
+      summaries = await this.#lsClient.getSummaries(true);
+      targetSummary = summaries[conversationId];
+    }
     if (!targetSummary) {
       throw new Error('Summary missing for conversation');
     }

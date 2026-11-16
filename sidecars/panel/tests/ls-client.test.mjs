@@ -7,7 +7,13 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LanguageServerClient, projectGeneratorMeta, projectStep } from '../ls-client.mjs';
+import {
+  LanguageServerClient,
+  matchProcessAndPort,
+  parseLoopbackAddress,
+  projectGeneratorMeta,
+  projectStep,
+} from '../ls-client.mjs';
 
 test('projectStep 与 projectGeneratorMeta 彻底剥离重文本字段', () => {
   const step = projectStep(
@@ -184,4 +190,48 @@ test('LanguageServerClient 支持增量偏移合并、压缩回退与 LRU 内存
   remoteSummaries.c2 = { stepCount: 1, lastModifiedTime: 't4', status: 'IDLE' };
   await client.getProjection('c2', { force: true });
   assert.ok(client.cachedBytes <= 900);
+});
+
+test('parseLoopbackAddress 保留协议标记且 matchProcessAndPort 支持 daemon hub 元数据与瞬态故障自愈', async () => {
+  const epHttps = parseLoopbackAddress('https://127.0.0.1:4349');
+  assert.equal(epHttps.protocol, 'https:');
+  assert.equal(epHttps.port, 4349);
+  assert.equal(epHttps.explicitProtocol, true);
+
+  const epImplicit = parseLoopbackAddress('localhost:4350');
+  assert.equal(epImplicit.protocol, 'http:');
+  assert.equal(epImplicit.hostname, '127.0.0.1');
+  assert.equal(epImplicit.explicitProtocol, false);
+
+  const discovered = matchProcessAndPort(
+    [{ ProcessId: 29068, CommandLine: 'language_server.exe --standalone --https_server_port 0 --csrf_token tok-1' }],
+    'antigravity',
+    [],
+    [{ pid: 29068, httpPort: 4350, httpsPort: 4349, csrfToken: 'tok-1' }],
+  );
+  assert.deepEqual(discovered, {
+    protocol: 'http:',
+    hostname: '127.0.0.1',
+    port: 4350,
+    csrf: 'tok-1',
+    explicitProtocol: true,
+  });
+
+  // 瞬态超时后若重发现返回 null，不应销毁既有端点，下一次请求应直接恢复
+  let failOnce = true;
+  const client = new LanguageServerClient({
+    lsAddress: 'http://127.0.0.1:4350',
+    csrfToken: 'tok-1',
+    discoverFn: async () => null,
+    requestFn: async () => {
+      if (failOnce) {
+        failOnce = false;
+        throw new Error('RPC timeout');
+      }
+      return { ok: true };
+    },
+  });
+  await assert.rejects(() => client.call('GetAllCascadeTrajectories'), /RPC timeout/);
+  const recovered = await client.call('GetAllCascadeTrajectories');
+  assert.equal(recovered.ok, true);
 });

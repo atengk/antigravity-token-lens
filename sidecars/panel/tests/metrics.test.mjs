@@ -309,3 +309,28 @@ test('峰值毛刺过滤、步骤友好标签、缓存跌落检测、重试统�
   assert.equal(m.diagnostics.budgets.rulesTokenBudget, 20000);
   assert.equal(m.diagnostics.budgets.customUsedTokens, 6000);
 });
+
+test('Gemini 4 Argon 与未知模型可正确归一化 modelKey 并套用参考或自定义上限', () => {
+  const argon = resolveModelInfo(null, 'Gemini 4 Argon (High)', null);
+  assert.equal(argon.key, 'gemini-4-argon');
+  assert.equal(argon.display, 'Gemini 4 Argon (High)');
+
+  const custom = resolveModelInfo(null, 'Future Model X (Ultra)', null);
+  assert.equal(custom.key, 'future-model-x');
+
+  const m = computeMetricsFromTranscript(
+    'conv-argon',
+    {
+      modelHint: 'Gemini 4 Argon (High)',
+      titleHint: 'Argon 会话',
+      steps: [
+        { stepIndex: 0, type: 'USER_INPUT', createdAt: '2026-11-16T01:00:00Z', createdAtMs: 1000 },
+        { stepIndex: 1, type: 'PLANNER_RESPONSE', createdAt: '2026-11-16T01:00:02Z', createdAtMs: 3000, inputTokens: 120000, cacheReadTokens: 0, outputTokens: 300 },
+        { stepIndex: 2, type: 'GENERIC', createdAt: '2026-11-16T01:00:06Z', createdAtMs: 7000 },
+      ],
+    },
+    { warnAt: 70, criticalAt: 85, contextLimitOverrides: {} },
+  );
+  assert.equal(m.context.maxTokens, 512000);
+  assert.equal(m.context.maxSource, 'reference');
+});

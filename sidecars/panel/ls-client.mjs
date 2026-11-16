@@ -6,8 +6,9 @@
  */
 
 import { execFile } from 'node:child_process';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -117,14 +118,18 @@ function extractUserPreview(rawStep) {
 }
 
 /**
- * 校验并解析本地回环服务地址。
+ * 校验并解析本地回环服务地址，保留显式协议（http/https）。
  *
- * @param {string} rawAddress 地址字符串（如 localhost:7108）
- * @return {{ hostname: string, port: number }|null}
+ * @param {string} rawAddress 地址字符串（如 http://127.0.0.1:4350 或 localhost:7108）
+ * @return {{ protocol: 'http:'|'https:', hostname: string, port: number, explicitProtocol: boolean }|null}
  */
 export function parseLoopbackAddress(rawAddress) {
   if (typeof rawAddress !== 'string' || !rawAddress.trim()) return null;
-  const raw = rawAddress.trim().replace(/^https?:\/\//i, '');
+  const trimmed = rawAddress.trim();
+  const schemeMatch = trimmed.match(/^(https?):\/\//i);
+  const explicitProtocol = Boolean(schemeMatch);
+  const protocol = schemeMatch && schemeMatch[1].toLowerCase() === 'https' ? 'https:' : 'http:';
+  const raw = trimmed.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   const idx = raw.lastIndexOf(':');
   if (idx <= 0) return null;
   const host = raw.slice(0, idx).toLowerCase();
@@ -132,7 +137,12 @@ export function parseLoopbackAddress(rawAddress) {
   if (!LOOPBACK_HOSTS.has(host) || !Number.isInteger(port) || port < 1 || port > 65535) {
     return null;
   }
-  return { hostname: host === 'localhost' ? '127.0.0.1' : host.replace(/^\[|\]$/g, ''), port };
+  return {
+    protocol,
+    hostname: host === 'localhost' ? '127.0.0.1' : host.replace(/^\[|\]$/g, ''),
+    port,
+    explicitProtocol,
+  };
 }
 
 /**
@@ -345,37 +355,45 @@ export function buildSummaryMark(summary) {
 }
 
 /**
- * 扫描当前产品对应的本机语言服务进程与日志以恢复重连端点。
+ * 扫描当前产品对应的本机语言服务进程、daemon 元数据与日志以恢复重连端点。
  *
  * @param {string} productName 产品目录名（如 antigravity 或 antigravity-ide）
  * @param {string} [home=homedir()] 用户目录
- * @return {Promise<{ hostname: string, port: number, csrf: string }|null>}
+ * @return {Promise<{ protocol: 'http:'|'https:', hostname: string, port: number, csrf: string, explicitProtocol: boolean }|null>}
  */
 async function discoverEndpointFromHost(productName, home = homedir()) {
-  const logPorts = await collectRecentPorts(productName, home);
+  const [daemonEntries, logPorts] = await Promise.all([
+    collectDaemonEndpoints(productName, home),
+    collectRecentPorts(productName, home),
+  ]);
 
-  if (process.platform === 'win32') {
-    const script = [
-      "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%'\" |",
-      'Select-Object ProcessId, CommandLine | ConvertTo-Json -Compress',
-    ].join(' ');
-    const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', script], {
-      timeout: 4500,
-      windowsHide: true,
-    });
-    const rows = parseProcessJson(stdout);
-    return matchProcessAndPort(rows, productName, logPorts);
+  let rows = [];
+  try {
+    if (process.platform === 'win32') {
+      const script = [
+        "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%'\" |",
+        'Select-Object ProcessId, CommandLine | ConvertTo-Json -Compress',
+      ].join(' ');
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', script], {
+        timeout: 4500,
+        windowsHide: true,
+      });
+      rows = parseProcessJson(stdout);
+    } else {
+      const { stdout } = await execFileAsync('ps', ['-eo', 'pid=,args='], { timeout: 4000 });
+      rows = stdout
+        .split(/\r?\n/)
+        .map((line) => {
+          const m = line.trim().match(/^(\d+)\s+(.*)$/);
+          return m ? { ProcessId: Number(m[1]), CommandLine: m[2] } : null;
+        })
+        .filter(Boolean);
+    }
+  } catch {
+    rows = [];
   }
 
-  const { stdout } = await execFileAsync('ps', ['-eo', 'pid=,args='], { timeout: 4000 });
-  const rows = stdout
-    .split(/\r?\n/)
-    .map((line) => {
-      const m = line.trim().match(/^(\d+)\s+(.*)$/);
-      return m ? { ProcessId: Number(m[1]), CommandLine: m[2] } : null;
-    })
-    .filter(Boolean);
-  return matchProcessAndPort(rows, productName, logPorts);
+  return matchProcessAndPort(rows, productName, logPorts, daemonEntries);
 }
 
 function parseProcessJson(raw) {
@@ -388,7 +406,7 @@ function parseProcessJson(raw) {
   }
 }
 
-function matchProcessAndPort(rows, productName, logPorts) {
+export function matchProcessAndPort(rows, productName, logPorts = [], daemonEntries = []) {
   const candidates = rows.filter((r) => /--standalone\b/.test(r?.CommandLine || ''));
   const productMatched = candidates.filter((r) => {
     const cmd = r.CommandLine || '';
@@ -400,16 +418,74 @@ function matchProcessAndPort(rows, productName, logPorts) {
   const target = productMatched[0] || (candidates.length === 1 ? candidates[0] : null);
   if (!target) return null;
 
-  const csrf = target.CommandLine.match(/--csrf_token(?:=|\s+)"?([^\s"]+)/)?.[1];
-  const portMatch = target.CommandLine.match(/--(?:server_port|port)(?:=|\s+)(\d+)/)?.[1];
-  const port = Number(portMatch) || logPorts[0];
-  if (!csrf || !Number.isInteger(port) || port < 1 || port > 65535) return null;
-  return { hostname: '127.0.0.1', port, csrf };
+  const targetPid = Number(target.ProcessId);
+  const csrf = target.CommandLine.match(/--csrf_token(?:=|\s+)"?([^\s"]+)/)?.[1] || null;
+  const daemonMatch =
+    daemonEntries.find((d) => Number.isInteger(targetPid) && d.pid === targetPid) ||
+    daemonEntries.find((d) => csrf && d.csrfToken === csrf) ||
+    null;
+
+  const finalCsrf = csrf || daemonMatch?.csrfToken || null;
+  if (!finalCsrf) return null;
+
+  if (daemonMatch) {
+    if (isValidPort(daemonMatch.httpPort)) {
+      return { protocol: 'http:', hostname: '127.0.0.1', port: daemonMatch.httpPort, csrf: finalCsrf, explicitProtocol: true };
+    }
+    if (isValidPort(daemonMatch.httpsPort)) {
+      return { protocol: 'https:', hostname: '127.0.0.1', port: daemonMatch.httpsPort, csrf: finalCsrf, explicitProtocol: true };
+    }
+  }
+
+  const httpPortMatch = target.CommandLine.match(/--(?:server_port|port)(?:=|\s+)(\d+)/)?.[1];
+  const httpsPortMatch = target.CommandLine.match(/--https_server_port(?:=|\s+)(\d+)/)?.[1];
+  const httpPort = Number(httpPortMatch) || logPorts[0];
+  if (isValidPort(httpPort)) {
+    return { protocol: 'http:', hostname: '127.0.0.1', port: httpPort, csrf: finalCsrf, explicitProtocol: false };
+  }
+  const httpsPort = Number(httpsPortMatch);
+  if (isValidPort(httpsPort)) {
+    return { protocol: 'https:', hostname: '127.0.0.1', port: httpsPort, csrf: finalCsrf, explicitProtocol: true };
+  }
+  return null;
+}
+
+function isValidPort(port) {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
+async function collectDaemonEndpoints(productName, home) {
+  const daemonDir = join(home, '.gemini', productName, 'daemon');
+  try {
+    const files = await readdir(daemonDir);
+    const items = [];
+    for (const f of files) {
+      if (!/^hub_\d+\.json$/i.test(f)) continue;
+      const fullPath = join(daemonDir, f);
+      try {
+        const [st, text] = await Promise.all([stat(fullPath), readFile(fullPath, 'utf8')]);
+        const data = JSON.parse(text);
+        items.push({
+          pid: Number(data?.pid),
+          httpPort: Number(data?.httpPort),
+          httpsPort: Number(data?.httpsPort),
+          csrfToken: typeof data?.csrfToken === 'string' ? data.csrfToken : null,
+          mtimeMs: st.mtimeMs,
+        });
+      } catch {
+        // 忽略损坏或半写入的 daemon 文件
+      }
+    }
+    return items.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  } catch {
+    return [];
+  }
 }
 
 async function collectRecentPorts(productName, home) {
   const dirs = [
     join(home, '.gemini', productName, 'logs'),
+    join(home, '.gemini', productName, 'log'),
     join(home, '.gemini', productName),
   ];
   const ports = [];
@@ -504,8 +580,20 @@ export class LanguageServerClient {
       this.#backoffUntil = 0;
       return result;
     } catch (err) {
+      if (!endpoint.explicitProtocol && !this.#requestFn) {
+        const altProtocol = endpoint.protocol === 'https:' ? 'http:' : 'https:';
+        const altEndpoint = { ...endpoint, protocol: altProtocol, explicitProtocol: true };
+        try {
+          const result = await this.#sendRpc(altEndpoint, method, body);
+          this.#endpoint = altEndpoint;
+          this.#failures = 0;
+          this.#backoffUntil = 0;
+          return result;
+        } catch {
+          // 协议切换探测失败则继续走宿主重发现流程
+        }
+      }
       if (!allowRediscover) throw err;
-      this.#endpoint = null;
       const rediscovered = await this.#discoverWithBackoff();
       if (!rediscovered) throw err;
       return this.#sendRpc(rediscovered, method, body);
@@ -552,20 +640,27 @@ export class LanguageServerClient {
     }
     return new Promise((resolve, reject) => {
       const payload = JSON.stringify(body);
-      const req = httpRequest(
-        {
-          hostname: endpoint.hostname,
-          port: endpoint.port,
-          method: 'POST',
-          path: `${SERVICE_PREFIX}${method}`,
-          agent: false,
-          headers: {
-            'Content-Type': 'application/json',
-            'Connect-Protocol-Version': '1',
-            'x-codeium-csrf-token': endpoint.csrf,
-            'Content-Length': Buffer.byteLength(payload, 'utf8'),
-          },
+      const isHttps = endpoint.protocol === 'https:';
+      const requester = isHttps ? httpsRequest : httpRequest;
+      const reqOpts = {
+        hostname: endpoint.hostname,
+        port: endpoint.port,
+        method: 'POST',
+        path: `${SERVICE_PREFIX}${method}`,
+        agent: false,
+        headers: {
+          'Content-Type': 'application/json',
+          'Connect-Protocol-Version': '1',
+          'x-codeium-csrf-token': endpoint.csrf,
+          'Content-Length': Buffer.byteLength(payload, 'utf8'),
         },
+      };
+      if (isHttps) {
+        // 本机回环 Language Server 使用自签证书，仅在 loopback 地址上允许跳过 CA 校验
+        reqOpts.rejectUnauthorized = false;
+      }
+      const req = requester(
+        reqOpts,
         (res) => {
           const chunks = [];
           let settled = false;
