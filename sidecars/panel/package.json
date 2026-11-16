@@ -1,0 +1,6 @@
+{
+  "name": "token-lens-panel",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Token Lens Aux Pane sidecar backend and UI"
+}

@@ -1,0 +1,21 @@
+{
+  "command": "node",
+  "args": ["main.mjs"],
+  "restart_policy": "always",
+  "display_name": "Token Lens",
+  "description": "实时透视当前会话及子代理的上下文水位、tokenBreakdown 构成拆解、纯流式速率（tok/s）、TTFT 与缓存命中诊断。",
+  "has_web_ui": true,
+  "agent_permissions": {
+    "allows_user_interactions": false
+  },
+  "ui_config": {
+    "display_name": "Token Lens",
+    "views": [
+      {
+        "path": "/",
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "title": "Token Lens"
+      }
+    ]
+  }
+}

@@ -1,0 +1,52 @@
+name: Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 22]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run unit tests
+        run: node --test sidecars/panel/tests/*.test.mjs
+
+      - name: Syntax check
+        run: |
+          node --check sidecars/panel/main.mjs
+          node --check sidecars/panel/ls-client.mjs
+          node --check sidecars/panel/metrics.mjs
+          node --check sidecars/panel/transcript.mjs
+          node --check sidecars/panel/store.mjs
+          node --check sidecars/panel/app.js
+
+      - name: Verify DOM ID consistency
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const html = fs.readFileSync('sidecars/panel/index.html', 'utf8');
+            const js = fs.readFileSync('sidecars/panel/app.js', 'utf8');
+            const idsInHtml = new Set([...html.matchAll(/id=\"([^\"]+)\"/g)].map(m => m[1]));
+            const idsInJs = [...new Set([...js.matchAll(/\\\$\\('([^']+)'\\)/g)].map(m => m[1]))];
+            const missing = idsInJs.filter(id => !idsInHtml.has(id));
+            console.log('Checked JS IDs:', idsInJs.length, 'Missing:', missing);
+            if (missing.length) process.exit(1);
+          "

@@ -1,0 +1,19 @@
+# OS & Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Node / Runtime
+node_modules/
+npm-debug.log*
+*.log
+.env
+.env.*
+
+# Sidecar runtime data (never committed)
+data/
+*.tmp

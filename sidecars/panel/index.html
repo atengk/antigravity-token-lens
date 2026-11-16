@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">
+  <title>Token Lens</title>
+  <script src="/preload.js"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app" class="tl-shell">
+    <!-- 顶部栏 -->
+    <header class="tl-header">
+      <div class="tl-brand">
+        <svg class="tl-logo" viewBox="0 0 128 128" aria-hidden="true">
+          <defs>
+            <linearGradient id="hdr-ring" x1="20" y1="20" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#3B82F6"/>
+              <stop offset="55%" stop-color="#06B6D4"/>
+              <stop offset="100%" stop-color="#10B981"/>
+            </linearGradient>
+          </defs>
+          <circle cx="64" cy="64" r="46" fill="none" stroke="url(#hdr-ring)" stroke-width="10" stroke-linecap="round" stroke-dasharray="220 70" transform="rotate(-135 64 64)"/>
+          <rect x="46" y="64" width="8" height="16" rx="4" fill="#3B82F6"/>
+          <rect x="58" y="48" width="8" height="32" rx="4" fill="#06B6D4"/>
+          <rect x="70" y="40" width="8" height="40" rx="4" fill="#10B981"/>
+        </svg>
+        <span class="tl-title">Token Lens</span>
+      </div>
+
+      <div class="tl-actions">
+        <button id="btn-back-parent" class="tl-btn tl-btn-chip hidden" type="button"></button>
+        <button id="btn-copy-summary" class="tl-btn tl-btn-icon" type="button" aria-label="复制摘要" title="复制摘要">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="4.5" width="7.5" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 4.5V3.4A1.4 1.4 0 0 0 9.1 2H4.4A1.4 1.4 0 0 0 3 3.4v7.2A1.4 1.4 0 0 0 4.4 12h1.1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+        </button>
+        <button id="btn-settings" class="tl-btn tl-btn-icon" type="button" aria-label="上限与阈值设置" title="上限与阈值设置">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 1.8v1.5M8 12.7v1.5M1.8 8h1.5M12.7 8h1.5M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        </button>
+        <button id="btn-lang" class="tl-btn tl-btn-text" type="button">EN</button>
+        <button id="btn-refresh" class="tl-btn tl-btn-icon" type="button" aria-label="立即刷新" title="立即刷新">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.3 8A5.3 5.3 0 1 1 11.7 4.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13.5 2.4v2.7h-2.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 会话选择与状态栏 -->
+    <section class="tl-meta-bar">
+      <select id="select-conversation" class="tl-select" aria-label="选择会话"></select>
+      <div class="tl-status-row">
+        <span id="status-badge" class="tl-status-pill">
+          <span class="tl-dot"></span>
+          <span id="status-text">--</span>
+        </span>
+        <span id="model-badge" class="tl-badge tl-badge-model">--</span>
+        <span id="source-badge" class="tl-badge tl-badge-source">--</span>
+      </div>
+    </section>
+
+    <!-- 可展开设置面板 -->
+    <section id="settings-drawer" class="tl-card tl-settings hidden">
+      <div class="tl-card-head">
+        <span id="lbl-settings-title" class="tl-card-title">上限与预警设置</span>
+        <button id="btn-close-settings" class="tl-btn tl-btn-text" type="button">✕</button>
+      </div>
+      <div class="tl-settings-grid">
+        <label class="tl-field">
+          <span id="lbl-limit-input">当前模型上下文上限 (Tokens)</span>
+          <div class="tl-inline-input">
+            <input id="input-max-tokens" type="number" min="1024" step="1024" placeholder="自动">
+            <button id="btn-reset-limit" class="tl-btn tl-btn-ghost" type="button">恢复默认</button>
+          </div>
+          <div class="tl-preset-row">
+            <button class="tl-chip-btn" data-limit="128000" type="button">128K</button>
+            <button class="tl-chip-btn" data-limit="200000" type="button">200K</button>
+            <button class="tl-chip-btn" data-limit="512000" type="button">512K</button>
+            <button class="tl-chip-btn" data-limit="1048576" type="button">1M</button>
+            <button class="tl-chip-btn" data-limit="2097152" type="button">2M</button>
+          </div>
+        </label>
+        <div class="tl-two-fields">
+          <label class="tl-field">
+            <span id="lbl-warn-at">注意阈值 (%)</span>
+            <input id="input-warn-at" type="number" min="10" max="95">
+          </label>
+          <label class="tl-field">
+            <span id="lbl-crit-at">预警阈值 (%)</span>
+            <input id="input-crit-at" type="number" min="15" max="99">
+          </label>
+        </div>
+        <div class="tl-settings-foot">
+          <button id="btn-save-settings" class="tl-btn tl-btn-primary" type="button">保存配置</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 空状态 / 加载状态 -->
+    <section id="empty-state" class="tl-card tl-empty hidden">
+      <div id="empty-title" class="tl-empty-title">暂无会话数据</div>
+      <div id="empty-desc" class="tl-empty-desc">在对话发送消息后，实时上下文与 Token 指标将自动显示在此处。</div>
+    </section>
+
+    <!-- 主内容区域 -->
+    <main id="main-content" class="tl-main hidden">
+      <!-- 1. 上下文水位主卡 -->
+      <section class="tl-card tl-context-card">
+        <div class="tl-card-head">
+          <span id="lbl-context-title" class="tl-card-title">上下文水位</span>
+          <div class="tl-context-nums">
+            <span id="ctx-used" class="tl-num-strong">--</span>
+            <span class="tl-sep">/</span>
+            <span id="ctx-max" class="tl-num-muted">--</span>
+            <span id="ctx-pct" class="tl-pct-pill">--</span>
+          </div>
+        </div>
+
+        <div class="tl-progress-wrap">
+          <div class="tl-progress-track">
+            <div id="ctx-bar" class="tl-progress-fill" style="width: 0%"></div>
+            <div id="ctx-warn-mark" class="tl-threshold-mark tl-mark-warn" style="left: 70%"></div>
+            <div id="ctx-crit-mark" class="tl-threshold-mark tl-mark-crit" style="left: 85%"></div>
+          </div>
+        </div>
+
+        <div class="tl-context-sub">
+          <span id="ctx-remaining" class="tl-muted">--</span>
+          <span id="ctx-max-source" class="tl-muted">--</span>
+        </div>
+
+        <div id="ctx-alert-banner" class="tl-alert hidden">
+          <span id="ctx-alert-text">--</span>
+          <button id="btn-copy-compact" class="tl-btn tl-btn-compact" type="button">/compact</button>
+        </div>
+
+        <!-- 上下文结构迷你分段条 -->
+        <div id="breakdown-mini" class="tl-breakdown-mini hidden">
+          <div id="breakdown-seg-bar" class="tl-seg-bar"></div>
+          <div id="breakdown-legend" class="tl-seg-legend"></div>
+        </div>
+      </section>
+
+      <!-- 2. 核心性能双指标卡（流式速率 + 缓存命中） -->
+      <section class="tl-grid-2">
+        <!-- 速率卡片 -->
+        <article class="tl-card tl-metric-card">
+          <div class="tl-card-head">
+            <span id="lbl-speed-title" class="tl-card-title">生成速率</span>
+            <button id="btn-toggle-chart" class="tl-btn tl-btn-mini" type="button">tok/s</button>
+          </div>
+          <div class="tl-hero-row">
+            <span id="tp-main" class="tl-hero-num">--</span>
+            <span id="tp-unit" class="tl-hero-unit">tok/s</span>
+          </div>
+          <div id="tp-sub-line1" class="tl-sub-meta">--</div>
+          <div id="tp-sub-line2" class="tl-sub-meta">--</div>
+          <div id="tp-sparkline" class="tl-sparkline" aria-hidden="true"></div>
+        </article>
+
+        <!-- 缓存命中卡片 -->
+        <article class="tl-card tl-metric-card">
+          <div class="tl-card-head">
+            <span id="lbl-cache-title" class="tl-card-title">缓存命中</span>
+            <span id="cache-rebuild-pill" class="tl-warn-tag hidden">--</span>
+          </div>
+          <div class="tl-hero-row">
+            <span id="cache-main" class="tl-hero-num">--</span>
+            <span id="cache-latest" class="tl-hero-subpill">--</span>
+          </div>
+          <div id="cache-saved" class="tl-sub-meta">--</div>
+          <div id="cache-detail" class="tl-sub-meta">--</div>
+          <div class="tl-cache-bar-wrap">
+            <div id="cache-bar" class="tl-cache-bar" style="width: 0%"></div>
+          </div>
+          <div id="cache-sparkline" class="tl-sparkline tl-sparkline-tight" aria-hidden="true"></div>
+        </article>
+      </section>
+
+      <!-- 3. 累计消耗三层汇总 -->
+      <section class="tl-card tl-totals-card">
+        <div class="tl-card-head">
+          <span id="lbl-totals-title" class="tl-card-title">会话累计消耗</span>
+          <span id="totals-grand-pill" class="tl-badge">--</span>
+        </div>
+        <div class="tl-totals-grid">
+          <div class="tl-total-cell">
+            <span id="lbl-tot-main" class="tl-cell-label">主会话</span>
+            <span id="tot-main-val" class="tl-cell-num">--</span>
+          </div>
+          <div class="tl-total-cell">
+            <span id="lbl-tot-sub" class="tl-cell-label">子代理 (0)</span>
+            <span id="tot-sub-val" class="tl-cell-num">--</span>
+          </div>
+          <div class="tl-total-cell">
+            <span id="lbl-tot-grand" class="tl-cell-label">总计</span>
+            <span id="tot-grand-val" class="tl-cell-num tl-num-accent">--</span>
+          </div>
+        </div>
+        <div id="tot-breakdown-line" class="tl-totals-footer">--</div>
+        <div id="tot-timing-line" class="tl-totals-footer tl-totals-timing hidden">--</div>
+      </section>
+
+      <!-- 4. 下钻 Tabs -->
+      <section class="tl-card tl-tabs-card">
+        <nav class="tl-tabs" role="tablist">
+          <button class="tl-tab is-active" data-tab="breakdown" role="tab" type="button">上下文构成</button>
+          <button class="tl-tab" data-tab="turns" role="tab" type="button">逐轮明细</button>
+          <button class="tl-tab" data-tab="subagents" role="tab" type="button">子代理</button>
+          <button class="tl-tab" data-tab="diagnostics" role="tab" type="button">工具与诊断</button>
+        </nav>
+
+        <div id="tab-breakdown" class="tl-tab-pane"></div>
+        <div id="tab-turns" class="tl-tab-pane hidden"></div>
+        <div id="tab-subagents" class="tl-tab-pane hidden"></div>
+        <div id="tab-diagnostics" class="tl-tab-pane hidden"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
