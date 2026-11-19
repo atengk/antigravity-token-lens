@@ -23,6 +23,8 @@ const SUMMARY_CACHE_TTL_MS = 1200;
 const RPC_TIMEOUT_MS = 5000;
 const MAX_TARGET_LEN = 38;
 const MAX_USER_PREVIEW_LEN = 28;
+const MAX_ERROR_PREVIEW_LEN = 120;
+const RETRY_ATTEMPT_RE = /attempt\s+(\d+)(?:\s*\/\s*(\d+))?/i;
 
 function truncateText(text, maxLen) {
   if (typeof text !== 'string') return '';
@@ -98,6 +100,75 @@ function extractToolSummary(rawStep, meta, parsedArgs) {
   };
 }
 
+function pickErrorText(value, depth = 0) {
+  if (!value || depth > 2) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value !== 'object') return '';
+  const candidates = [
+    value.userErrorMessage,
+    value.shortError,
+    value.message,
+    value.fullError,
+    value.errorMessage,
+    value.error,
+  ];
+  for (const item of candidates) {
+    const text = pickErrorText(item, depth + 1);
+    if (text) return text;
+  }
+  return '';
+}
+
+function extractErrorSummary(rawStep, meta) {
+  const type = String(rawStep?.type || '');
+  const status = String(rawStep?.status || '');
+  const isRetryOrErrorStep =
+    type.includes('ERROR_MESSAGE') ||
+    type.includes('RETRY') ||
+    /RETRY/i.test(status);
+
+  const rawAttempt = Number(
+    rawStep?.errorMessage?.attempt ??
+      rawStep?.error?.attempt ??
+      meta?.retryAttempt ??
+      meta?.attempt,
+  );
+  const rawMaxAttempts = Number(
+    rawStep?.errorMessage?.maxAttempts ??
+      rawStep?.error?.maxAttempts ??
+      meta?.maxAttempts,
+  );
+
+  // 仅针对错误消息或重试类步骤提取轻量摘要，避免常规工具报错步骤额外占用缓存体积
+  if (!isRetryOrErrorStep && !rawStep?.errorMessage && !Number.isInteger(rawAttempt)) {
+    return null;
+  }
+
+  const text =
+    pickErrorText(rawStep?.errorMessage) ||
+    pickErrorText(rawStep?.error) ||
+    pickErrorText(meta?.error);
+  const match = text ? text.match(RETRY_ATTEMPT_RE) : null;
+  const attempt =
+    Number.isInteger(rawAttempt) && rawAttempt > 0
+      ? rawAttempt
+      : match
+        ? Number(match[1])
+        : null;
+  const maxAttempts =
+    Number.isInteger(rawMaxAttempts) && rawMaxAttempts > 0
+      ? rawMaxAttempts
+      : match?.[2]
+        ? Number(match[2])
+        : null;
+
+  return {
+    message: text ? truncateText(text, MAX_ERROR_PREVIEW_LEN) : null,
+    attempt: Number.isInteger(attempt) && attempt > 0 ? attempt : null,
+    maxAttempts: Number.isInteger(maxAttempts) && maxAttempts > 0 ? maxAttempts : null,
+  };
+}
+
 function extractUserPreview(rawStep) {
   const ui = rawStep?.userInput;
   if (!ui || typeof ui !== 'object') return null;
@@ -169,6 +240,7 @@ export function projectStep(rawStep, index) {
   }
 
   const toolSummary = extractToolSummary(s, meta, parsedArgs);
+  const errorSummary = extractErrorSummary(s, meta);
   const userPreview = s.type?.includes('USER_INPUT') ? extractUserPreview(s) : null;
   const toolCallCount = Array.isArray(s.plannerResponse?.toolCalls) ? s.plannerResponse.toolCalls.length : 0;
 
@@ -186,6 +258,7 @@ export function projectStep(rawStep, index) {
     invokeSubagent,
   };
   if (toolSummary) stepProj.toolSummary = toolSummary;
+  if (errorSummary) stepProj.errorSummary = errorSummary;
   if (userPreview) stepProj.userPreview = userPreview;
   if (toolCallCount > 0) stepProj.toolCallCount = toolCallCount;
   return stepProj;

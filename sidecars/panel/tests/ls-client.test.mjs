@@ -235,3 +235,43 @@ test('parseLoopbackAddress 保留协议标记且 matchProcessAndPort 支持 daem
   const recovered = await client.call('GetAllCascadeTrajectories');
   assert.equal(recovered.ok, true);
 });
+
+test('projectStep 提取 ERROR_MESSAGE 的重试次数与轻量摘要，并忽略常规工具错误步骤', () => {
+  const errStepStr = projectStep(
+    {
+      type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE',
+      status: 'CORTEX_STEP_STATUS_DONE',
+      error: 'API error (attempt 7): request failed: ' + 'x'.repeat(300),
+      metadata: { createdAt: '2026-11-19T01:27:07Z' },
+    },
+    205,
+  );
+  assert.equal(errStepStr.errorSummary?.attempt, 7);
+  assert.equal(errStepStr.errorSummary?.maxAttempts, null);
+  assert.ok(errStepStr.errorSummary.message.length <= 122);
+
+  const errStepObj = projectStep(
+    {
+      type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE',
+      status: 'CORTEX_STEP_STATUS_DONE',
+      errorMessage: { error: { userErrorMessage: 'Model unavailable, retrying in 53s (attempt 7/9)' } },
+      metadata: { createdAt: '2026-11-19T01:27:07Z' },
+    },
+    206,
+  );
+  assert.equal(errStepObj.errorSummary?.attempt, 7);
+  assert.equal(errStepObj.errorSummary?.maxAttempts, 9);
+
+  const toolErrStep = projectStep(
+    {
+      type: 'CORTEX_STEP_TYPE_RUN_COMMAND',
+      status: 'DONE',
+      error: 'exit status 1',
+      runCommand: { commandLine: 'npm test', exitCode: 1 },
+      metadata: { toolCall: { name: 'run_command' } },
+    },
+    207,
+  );
+  assert.equal(toolErrStep.toolSummary?.hasError, true);
+  assert.equal(toolErrStep.errorSummary, undefined);
+});

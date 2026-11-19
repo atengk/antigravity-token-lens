@@ -334,3 +334,79 @@ test('Gemini 4 Argon 与未知模型可正确归一化 modelKey 并套用参考�
   assert.equal(m.context.maxTokens, 512000);
   assert.equal(m.context.maxSource, 'reference');
 });
+
+test('computeMetricsFromProjection 准确识别重试等待、重连首字前与恢复流式状态', () => {
+  const baseMeta = [{ index: 0, stepIndices: [1], model: 'MODEL_PLACEHOLDER_M528', usage: { inputTokens: 1000, outputTokens: 100 } }];
+  const prefs = { warnAt: 70, criticalAt: 85 };
+
+  // 1. 退避等待中：尾部为 ERROR_MESSAGE (DONE)，总状态仍为 RUNNING
+  const mRetrying = computeMetricsFromProjection(
+    'conv-retry-1',
+    {
+      summary: { status: 'CASCADE_RUN_STATUS_RUNNING', lastModifiedTime: '2026-11-19T01:27:07Z', stepCount: 4 },
+      steps: [
+        { index: 0, type: 'CORTEX_STEP_TYPE_USER_INPUT', status: 'DONE', createdAt: '2026-11-19T01:20:00Z' },
+        { index: 1, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'DONE', createdAt: '2026-11-19T01:20:01Z' },
+        { index: 2, type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE', status: 'DONE', createdAt: '2026-11-19T01:25:06Z', errorSummary: { attempt: 6, message: 'EOF' } },
+        { index: 3, type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE', status: 'DONE', createdAt: '2026-11-19T01:27:07Z', errorSummary: { attempt: 7, maxAttempts: 9, message: 'Model unavailable' } },
+      ],
+      generatorMetadata: baseMeta,
+    },
+    prefs,
+  );
+  assert.equal(mRetrying.conversation.isRunning, true);
+  assert.equal(mRetrying.activeRun?.phase, 'retrying');
+  assert.equal(mRetrying.activeRun?.retryAttempt, 7);
+  assert.equal(mRetrying.activeRun?.retryMaxAttempts, 9);
+  assert.equal(mRetrying.activeRun?.startedAtMs, Date.parse('2026-11-19T01:27:07Z'));
+
+  // 2. 重试新请求已发出但未吐出首字：仍保持 retrying；一旦拿到 viewableAt 则切为 streaming
+  const mPendingRetry = computeMetricsFromProjection(
+    'conv-retry-2',
+    {
+      summary: { status: 'CASCADE_RUN_STATUS_RUNNING', lastModifiedTime: '2026-11-19T01:29:55Z', stepCount: 4 },
+      steps: [
+        { index: 0, type: 'CORTEX_STEP_TYPE_USER_INPUT', status: 'DONE', createdAt: '2026-11-19T01:20:00Z' },
+        { index: 1, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'DONE', createdAt: '2026-11-19T01:20:01Z' },
+        { index: 2, type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE', status: 'DONE', createdAt: '2026-11-19T01:27:07Z', errorSummary: { attempt: 7, message: 'EOF' } },
+        { index: 3, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'GENERATING', createdAt: '2026-11-19T01:29:55Z', viewableAt: null },
+      ],
+      generatorMetadata: baseMeta,
+    },
+    prefs,
+  );
+  assert.equal(mPendingRetry.activeRun?.phase, 'retrying');
+  assert.equal(mPendingRetry.activeRun?.retryAttempt, 7);
+
+  const mRecoveredStream = computeMetricsFromProjection(
+    'conv-retry-3',
+    {
+      summary: { status: 'CASCADE_RUN_STATUS_RUNNING', lastModifiedTime: '2026-11-19T01:29:58Z', stepCount: 4 },
+      steps: [
+        { index: 0, type: 'CORTEX_STEP_TYPE_USER_INPUT', status: 'DONE', createdAt: '2026-11-19T01:20:00Z' },
+        { index: 1, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'DONE', createdAt: '2026-11-19T01:20:01Z' },
+        { index: 2, type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE', status: 'DONE', createdAt: '2026-11-19T01:27:07Z', errorSummary: { attempt: 7, message: 'EOF' } },
+        { index: 3, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'GENERATING', createdAt: '2026-11-19T01:29:55Z', viewableAt: '2026-11-19T01:29:58Z' },
+      ],
+      generatorMetadata: baseMeta,
+    },
+    prefs,
+  );
+  assert.equal(mRecoveredStream.activeRun?.phase, 'streaming');
+
+  // 3. 历史轮次曾出错但当前进入正常工具执行，不应误报 retrying 或 streaming
+  const mToolRunning = computeMetricsFromProjection(
+    'conv-tool-run',
+    {
+      summary: { status: 'CASCADE_RUN_STATUS_RUNNING', lastModifiedTime: '2026-11-19T01:30:10Z', stepCount: 4 },
+      steps: [
+        { index: 0, type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE', status: 'DONE', createdAt: '2026-11-19T01:27:07Z', errorSummary: { attempt: 7, message: 'EOF' } },
+        { index: 1, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'DONE', createdAt: '2026-11-19T01:29:55Z' },
+        { index: 2, type: 'CORTEX_STEP_TYPE_RUN_COMMAND', status: 'RUNNING', createdAt: '2026-11-19T01:30:00Z', viewableAt: '2026-11-19T01:30:01Z' },
+      ],
+      generatorMetadata: baseMeta,
+    },
+    prefs,
+  );
+  assert.equal(mToolRunning.activeRun?.phase, 'waiting');
+});

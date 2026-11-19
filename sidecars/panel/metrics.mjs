@@ -388,6 +388,103 @@ function aggregateDiagnostics(steps, breakdown, retryAcc, budgetSource) {
   };
 }
 
+function isPendingStepStatus(status) {
+  const s = String(status || '');
+  if (/RUNNING|GENERATING|RETRY/i.test(s)) return true;
+  return /WAITING/i.test(s) && !/WAITING_FOR_USER/i.test(s);
+}
+
+function isRetryErrorStep(step) {
+  if (!step) return false;
+  const type = String(step.type || '');
+  const status = String(step.status || '');
+  return (
+    type.includes('ERROR_MESSAGE') ||
+    type.includes('RETRY') ||
+    /RETRY/i.test(status) ||
+    Boolean(step.errorSummary)
+  );
+}
+
+function findTrailingRetryInfo(steps, pendingIdx) {
+  let endIdx = steps.length - 1;
+  const pendingStep = pendingIdx >= 0 ? steps[pendingIdx] : null;
+  // 若尾部正处于尚未首字吐出的 PLANNER_RESPONSE（可能是重连尝试中），跳过它往前探测紧邻的错误重试步
+  if (
+    pendingStep &&
+    pendingIdx === endIdx &&
+    String(pendingStep.type || '').includes('PLANNER_RESPONSE') &&
+    !parseIsoMs(pendingStep.viewableAt)
+  ) {
+    endIdx--;
+  }
+
+  let count = 0;
+  let lastErrorStep = null;
+  for (let i = endIdx; i >= 0; i--) {
+    const st = steps[i];
+    if (!isRetryErrorStep(st)) break;
+    if (!lastErrorStep) lastErrorStep = st;
+    count++;
+  }
+
+  if (!lastErrorStep) return null;
+  const parsedAttempt = lastErrorStep.errorSummary?.attempt;
+  const maxAttempts = lastErrorStep.errorSummary?.maxAttempts ?? null;
+  return {
+    attempt: Number.isInteger(parsedAttempt) && parsedAttempt > 0 ? Math.max(parsedAttempt, count) : count,
+    maxAttempts: Number.isInteger(maxAttempts) && maxAttempts > 0 ? maxAttempts : null,
+    errorMessage: lastErrorStep.errorSummary?.message || null,
+    lastErrorAtMs: parseIsoMs(lastErrorStep.createdAt),
+  };
+}
+
+function resolveActiveRun(summary, steps) {
+  let pendingIdx = -1;
+  for (let i = steps.length - 1; i >= 0; i--) {
+    if (isPendingStepStatus(steps[i]?.status)) {
+      pendingIdx = i;
+      break;
+    }
+  }
+  const pendingStep = pendingIdx >= 0 ? steps[pendingIdx] : null;
+  const viewableAtMs = parseIsoMs(pendingStep?.viewableAt);
+  const pendingType = String(pendingStep?.type || '');
+  const isStreaming = Boolean(viewableAtMs && (!pendingType || pendingType.includes('PLANNER_RESPONSE')));
+
+  if (isStreaming) {
+    return {
+      startedAtMs: parseIsoMs(pendingStep?.createdAt) ?? parseIsoMs(summary.lastModifiedTime),
+      viewableAtMs,
+      phase: 'streaming',
+      retryAttempt: null,
+      retryMaxAttempts: null,
+      retryError: null,
+    };
+  }
+
+  const retryInfo = findTrailingRetryInfo(steps, pendingIdx);
+  if (retryInfo || /RETRY/i.test(String(summary.status || ''))) {
+    return {
+      startedAtMs: parseIsoMs(pendingStep?.createdAt) ?? retryInfo?.lastErrorAtMs ?? parseIsoMs(summary.lastModifiedTime),
+      viewableAtMs: null,
+      phase: 'retrying',
+      retryAttempt: retryInfo?.attempt ?? null,
+      retryMaxAttempts: retryInfo?.maxAttempts ?? null,
+      retryError: retryInfo?.errorMessage ?? null,
+    };
+  }
+
+  return {
+    startedAtMs: parseIsoMs(pendingStep?.createdAt) ?? parseIsoMs(summary.lastModifiedTime),
+    viewableAtMs: null,
+    phase: 'waiting',
+    retryAttempt: null,
+    retryMaxAttempts: null,
+    retryError: null,
+  };
+}
+
 /**
  * 根据 LS Trajectory 投影计算单会话的核心统计对象（不含跨子代理汇总）。
  *
@@ -578,18 +675,8 @@ export function computeMetricsFromProjection(conversationId, proj, preferences) 
   const remainingTokens =
     usedTokens !== null && maxTokens ? Math.max(0, maxTokens - usedTokens) : null;
 
-  const isRunning = /RUNNING/.test(String(summary.status || ''));
-  let activeRun = null;
-  if (isRunning) {
-    const pendingStep = [...steps].reverse().find((s) => /RUNNING|GENERATING/.test(s.status));
-    const startedAtMs = parseIsoMs(pendingStep?.createdAt) ?? parseIsoMs(summary.lastModifiedTime);
-    const viewableAtMs = parseIsoMs(pendingStep?.viewableAt);
-    activeRun = {
-      startedAtMs,
-      viewableAtMs,
-      phase: viewableAtMs ? 'streaming' : 'waiting',
-    };
-  }
+  const isRunning = /RUNNING|RETRY/i.test(String(summary.status || ''));
+  const activeRun = isRunning ? resolveActiveRun(summary, steps) : null;
 
   const breakdown = buildBreakdownSummary(latestContextWindow?.tokenBreakdown, steps);
   const growth = computeContextGrowth(turns, usedTokens, maxTokens, preferences?.criticalAt ?? 85);

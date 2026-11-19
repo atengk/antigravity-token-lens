@@ -245,8 +245,25 @@ html, body {
   animation: tl-pulse 1.5s infinite;
 }
 
+.tl-status-pill.is-running.is-retrying {
+  color: var(--tl-warn);
+  background: color-mix(in srgb, var(--tl-warn) 15%, transparent);
+}
+
+.tl-status-pill.is-running.is-retrying .tl-dot {
+  background: var(--tl-warn);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--tl-warn) 60%, transparent);
+  animation: tl-pulse-warn 1.5s infinite;
+}
+
 @keyframes tl-pulse {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tl-success) 55%, transparent); }
+  70% { box-shadow: 0 0 0 5px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes tl-pulse-warn {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tl-warn) 55%, transparent); }
   70% { box-shadow: 0 0 0 5px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }

@@ -51,6 +51,7 @@
       tabDiagnostics: '工具与诊断',
       runningPhaseWait: '思考/排队中',
       runningPhaseStream: '流式生成中',
+      runningPhaseRetry: '重试中',
       idleStatus: '空闲',
       offlineStatus: '离线快照',
       sourceRpc: 'RPC 实时',
@@ -140,6 +141,7 @@
       tabDiagnostics: 'Diagnostics',
       runningPhaseWait: 'Thinking / Queue',
       runningPhaseStream: 'Streaming',
+      runningPhaseRetry: 'Retrying',
       idleStatus: 'Idle',
       offlineStatus: 'Offline',
       sourceRpc: 'Live RPC',
@@ -393,25 +395,45 @@
     state.pollTimer = setTimeout(() => void refreshSnapshot(false), delay);
   }
 
+  function formatRunningPhaseLabel(ar) {
+    if (ar?.phase === 'streaming') return t('runningPhaseStream');
+    if (ar?.phase === 'retrying') {
+      const base = t('runningPhaseRetry');
+      if (ar.retryAttempt > 0 && ar.retryMaxAttempts > 0) {
+        return `${base} (${ar.retryAttempt}/${ar.retryMaxAttempts})`;
+      }
+      if (ar.retryAttempt > 0) {
+        return state.lang === 'zh-CN' ? `${base} (第 ${ar.retryAttempt} 次)` : `${base} (#${ar.retryAttempt})`;
+      }
+      return base;
+    }
+    return t('runningPhaseWait');
+  }
+
   function updateRunningTimer() {
     const snap = state.snapshot;
     const pill = $('status-badge');
     const textEl = $('status-text');
     if (!snap || snap.empty || snap.notFound) {
-      pill.classList.remove('is-running');
+      pill.classList.remove('is-running', 'is-retrying');
+      pill.title = '';
       textEl.textContent = '--';
       return;
     }
 
     const c = snap.conversation;
     if (c?.isRunning) {
-      pill.classList.add('is-running');
       const ar = snap.activeRun;
+      const isRetrying = ar?.phase === 'retrying';
+      pill.classList.add('is-running');
+      pill.classList.toggle('is-retrying', isRetrying);
+      pill.title = isRetrying && ar?.retryError ? ar.retryError : '';
       const elapsedSec = ar?.startedAtMs ? Math.max(0, (Date.now() - ar.startedAtMs) / 1000) : null;
-      const phaseLabel = ar?.phase === 'streaming' ? t('runningPhaseStream') : t('runningPhaseWait');
+      const phaseLabel = formatRunningPhaseLabel(ar);
       textEl.textContent = elapsedSec !== null ? `${phaseLabel} · ${elapsedSec.toFixed(1)}s` : phaseLabel;
     } else {
-      pill.classList.remove('is-running');
+      pill.classList.remove('is-running', 'is-retrying');
+      pill.title = '';
       textEl.textContent = snap.source === 'rpc' ? t('idleStatus') : t('offlineStatus');
     }
   }
