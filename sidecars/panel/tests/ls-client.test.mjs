@@ -9,6 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   LanguageServerClient,
+  buildModelCatalogFromUserStatus,
   matchProcessAndPort,
   parseLoopbackAddress,
   projectGeneratorMeta,
@@ -274,4 +275,64 @@ test('projectStep 提取 ERROR_MESSAGE 的重试次数与轻量摘要，并忽�
   );
   assert.equal(toolErrStep.toolSummary?.hasError, true);
   assert.equal(toolErrStep.errorSummary, undefined);
+});
+
+test('buildModelCatalogFromUserStatus 剥离敏感信息并支持 getModelCatalog TTL 缓存', async () => {
+  const userStatusRes = {
+    userStatus: {
+      email: 'user@example.com',
+      cascadeModelConfigData: {
+        clientModelConfigs: [
+          {
+            label: 'Gemini 4 Neon (High)',
+            modelOrAlias: { model: 'MODEL_PLACEHOLDER_M532' },
+            modelId: 'gemini-4-neon-high',
+            supportedMimeTypes: { 'text/plain': true },
+          },
+          {
+            label: 'Gemini 4 Carbon',
+            modelOrAlias: { model: 'MODEL_PLACEHOLDER_M670' },
+            modelId: 'gemini-4-carbon-disabled',
+            disabled: true,
+          },
+        ],
+      },
+    },
+  };
+
+  const parsed = buildModelCatalogFromUserStatus(userStatusRes);
+  assert.equal(parsed.length, 2);
+  assert.deepEqual(parsed[0], {
+    rawModel: 'MODEL_PLACEHOLDER_M532',
+    display: 'Gemini 4 Neon (High)',
+    modelId: 'gemini-4-neon-high',
+    disabled: false,
+  });
+  assert.equal(parsed[1].disabled, true);
+  assert.equal(JSON.stringify(parsed).includes('user@example.com'), false);
+
+  let rpcCount = 0;
+  let nowMs = 10_000;
+  const client = new LanguageServerClient({
+    lsAddress: 'http://127.0.0.1:4350',
+    csrfToken: 'tok-1',
+    nowFn: () => nowMs,
+    requestFn: async (_ep, method) => {
+      if (method === 'GetUserStatus') {
+        rpcCount++;
+        return userStatusRes;
+      }
+      return {};
+    },
+  });
+
+  const c1 = await client.getModelCatalog();
+  const c2 = await client.getModelCatalog();
+  assert.equal(c1.length, 2);
+  assert.equal(c2.length, 2);
+  assert.equal(rpcCount, 1);
+
+  nowMs += 6 * 60 * 1000;
+  await client.getModelCatalog();
+  assert.equal(rpcCount, 2);
 });

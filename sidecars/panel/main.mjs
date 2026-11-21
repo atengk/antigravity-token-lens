@@ -218,14 +218,20 @@ export class PanelService {
       return { unchanged: true, etag: nextEtag, conversationId };
     }
 
-    const [primaryProj, ...childProjs] = await Promise.all([
+    const modelCatalogPromise =
+      typeof this.#lsClient.getModelCatalog === 'function'
+        ? this.#lsClient.getModelCatalog().catch(() => [])
+        : Promise.resolve([]);
+
+    const [modelCatalog, primaryProj, ...childProjs] = await Promise.all([
+      modelCatalogPromise,
       this.#lsClient.getProjection(conversationId, { summary: targetSummary, force }),
       ...cappedChildren.map(([id, s]) =>
         this.#lsClient.getProjection(id, { summary: s, force }).catch(() => null),
       ),
     ]);
 
-    const primary = computeMetricsFromProjection(conversationId, primaryProj, preferences);
+    const primary = computeMetricsFromProjection(conversationId, primaryProj, preferences, { modelCatalog });
     const subagentSummaries = [];
 
     for (let i = 0; i < cappedChildren.length; i++) {
@@ -237,7 +243,7 @@ export class PanelService {
       const typeName = spec.typeName || tm?.agentScript?.name || 'subagent';
 
       if (subProj) {
-        const m = computeMetricsFromProjection(subId, subProj, preferences);
+        const m = computeMetricsFromProjection(subId, subProj, preferences, { modelCatalog });
         subagentSummaries.push({
           id: subId,
           parentId: tm.parentConversationId || conversationId,

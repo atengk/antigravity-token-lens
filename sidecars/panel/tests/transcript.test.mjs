@@ -42,6 +42,36 @@ test('parseTranscriptText 能容忍末尾写入截断的半行并提取模型与
   assert.equal(parsed.subagentCalls[0].role, 'Code Explorer');
 });
 
+test('parseTranscriptText 完整保留带小数点的模型版本号并读取 PLANNER_RESPONSE.model', () => {
+  const rawDotted = [
+    JSON.stringify({
+      step_index: 0,
+      type: 'USER_INPUT',
+      content: 'The user changed setting `Model Selection` from Gemini 4 Hydrogen (High) to Gemini 3.8 Flash (High). No need to comment on this change.',
+    }),
+    JSON.stringify({
+      step_index: 1,
+      type: 'USER_INPUT',
+      content: 'The user changed setting `Model Selection` from Gemini 3.8 Flash (High) to Claude Sonnet 5.5 (Medium).',
+    }),
+  ].join('\n');
+
+  const parsedDotted = parseTranscriptText(rawDotted);
+  assert.equal(parsedDotted.modelHint, 'Claude Sonnet 5.5 (Medium)');
+
+  const rawPlannerModel = JSON.stringify({
+    step_index: 0,
+    type: 'PLANNER_RESPONSE',
+    model: 'MODEL_PLACEHOLDER_M532',
+    input_tokens: 1200,
+    cache_read_tokens: 0,
+    output_tokens: 150,
+  });
+  const parsedPlanner = parseTranscriptText(rawPlannerModel);
+  assert.equal(parsedPlanner.rawModelHint, 'MODEL_PLACEHOLDER_M532');
+  assert.equal(parsedPlanner.modelHint, 'MODEL_PLACEHOLDER_M532');
+});
+
 test('PreferencesStore 支持原子更新、阈值校对与覆盖清除', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'token-lens-test-'));
   try {

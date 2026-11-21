@@ -20,6 +20,7 @@ const SETTLED_STATUS_RE = /IDLE|DONE|COMPLETED|CANCELLED|CANCELED|STOPPED|FAILED
 const PORT_LOG_RE = /listening on random port at (\d+) for HTTP(?:\s|$)/g;
 const DEFAULT_BUDGET_BYTES = 16 * 1024 * 1024;
 const SUMMARY_CACHE_TTL_MS = 1200;
+const MODEL_CATALOG_TTL_MS = 5 * 60 * 1000;
 const RPC_TIMEOUT_MS = 5000;
 const MAX_TARGET_LEN = 38;
 const MAX_USER_PREVIEW_LEN = 28;
@@ -428,6 +429,34 @@ export function buildSummaryMark(summary) {
 }
 
 /**
+ * 从 GetUserStatus 响应中提取轻量模型目录（剥离账户隐私与 MIME 列表）。
+ *
+ * @param {object} userStatusRes GetUserStatus RPC 原始响应
+ * @return {Array<{ rawModel: string|null, display: string|null, modelId: string|null, disabled: boolean }>}
+ */
+export function buildModelCatalogFromUserStatus(userStatusRes) {
+  const configs = userStatusRes?.userStatus?.cascadeModelConfigData?.clientModelConfigs;
+  if (!Array.isArray(configs)) return [];
+  const items = [];
+  for (const cfg of configs) {
+    if (!cfg || typeof cfg !== 'object') continue;
+    const rawModel = typeof cfg.modelOrAlias?.model === 'string' && cfg.modelOrAlias.model.trim()
+      ? cfg.modelOrAlias.model.trim()
+      : null;
+    const display = typeof cfg.label === 'string' && cfg.label.trim() ? cfg.label.trim() : null;
+    const modelId = typeof cfg.modelId === 'string' && cfg.modelId.trim() ? cfg.modelId.trim() : null;
+    if (!rawModel && !display && !modelId) continue;
+    items.push({
+      rawModel,
+      display,
+      modelId,
+      disabled: Boolean(cfg.disabled),
+    });
+  }
+  return items;
+}
+
+/**
  * 扫描当前产品对应的本机语言服务进程、daemon 元数据与日志以恢复重连端点。
  *
  * @param {string} productName 产品目录名（如 antigravity 或 antigravity-ide）
@@ -591,6 +620,9 @@ export class LanguageServerClient {
   #summariesCache = null;
   #summariesAt = -Infinity;
   #summariesPending = null;
+  #modelCatalogCache = null;
+  #modelCatalogAt = -Infinity;
+  #modelCatalogPending = null;
   #projCache = new Map();
   #inFlight = new Map();
   #totalCachedBytes = 0;
@@ -796,6 +828,33 @@ export class LanguageServerClient {
       });
 
     return this.#summariesPending;
+  }
+
+  /**
+   * 获取在线模型目录（来自 GetUserStatus，带长 TTL 缓存且失败不影响主链路）。
+   *
+   * @param {boolean} [force=false] 是否跳过缓存强制刷新
+   * @return {Promise<Array<{ rawModel: string|null, display: string|null, modelId: string|null, disabled: boolean }>>}
+   */
+  async getModelCatalog(force = false) {
+    const now = this.#nowFn();
+    if (!force && this.#modelCatalogCache && now - this.#modelCatalogAt < MODEL_CATALOG_TTL_MS) {
+      return this.#modelCatalogCache;
+    }
+    if (this.#modelCatalogPending) return this.#modelCatalogPending;
+
+    this.#modelCatalogPending = this.call('GetUserStatus', {})
+      .then((res) => {
+        const catalog = buildModelCatalogFromUserStatus(res);
+        this.#modelCatalogCache = catalog;
+        this.#modelCatalogAt = this.#nowFn();
+        return catalog;
+      })
+      .finally(() => {
+        this.#modelCatalogPending = null;
+      });
+
+    return this.#modelCatalogPending;
   }
 
   /**

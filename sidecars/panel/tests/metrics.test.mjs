@@ -133,7 +133,11 @@ test('computeMetricsFromProjection 精确分离流式速率与 TTFT、拆解 Bre
   assert.equal(m.cache.rebuildCount, 1);
   assert.equal(m.turns[0].cacheRebuilt, true);
 
-  // 上下文水位 441000 / 512000 = 86.13% -> critical
+  // 上下文水位优先采信服务端实测输入 440000 / 512000 = 85.94% -> critical，同时保留预估差值
+  assert.equal(m.context.usedTokens, 440000);
+  assert.equal(m.context.usedSource, 'measured');
+  assert.equal(m.context.preflightTokens, 441000);
+  assert.equal(m.context.estimationDelta, -1000);
   assert.equal(m.context.alertLevel, 'critical');
   assert.equal(m.context.maxSource, 'host');
   assert.equal(m.context.breakdown.topMessages[0].name, '4: USER_INPUT');
@@ -409,4 +413,102 @@ test('computeMetricsFromProjection 准确识别重试等待、重连首字前与
     prefs,
   );
   assert.equal(mToolRunning.activeRun?.phase, 'waiting');
+});
+
+test('在线模型目录动态映射、连字符版本识别与宿主有效上限兜底（ADR-0001）', () => {
+  const catalog = [
+    { rawModel: 'MODEL_PLACEHOLDER_M999', display: 'Gemini 4 Neon (Ultra)', modelId: 'gemini-4-neon-ultra', disabled: false },
+  ];
+
+  // 1. 动态目录匹配未写入静态表的最新占位符
+  const dynamicNeon = resolveModelInfo('MODEL_PLACEHOLDER_M999', null, null, catalog);
+  assert.equal(dynamicNeon.key, 'gemini-4-neon');
+  assert.equal(dynamicNeon.display, 'Gemini 4 Neon (Ultra)');
+
+  // 2. 连字符 Claude 5.5 modelId 不应误落入 4.6
+  const claude55 = resolveModelInfo(null, null, 'claude-sonnet-5-5-high');
+  assert.equal(claude55.key, 'claude-sonnet-5.5');
+
+  // 3. 离线兜底统一采用 512K 宿主有效上限（Neon / Orchestrator / 3.8 Flash / Claude 5.5）
+  for (const hint of ['MODEL_PLACEHOLDER_M532', 'MODEL_PLACEHOLDER_M537', 'MODEL_PLACEHOLDER_M318', 'MODEL_PLACEHOLDER_M405']) {
+    const m = computeMetricsFromTranscript(
+      `conv-${hint}`,
+      {
+        rawModelHint: hint,
+        modelHint: 'Gemini 4 Argon (High)',
+        steps: [
+          { stepIndex: 0, type: 'PLANNER_RESPONSE', createdAtMs: 1000, inputTokens: 10000, cacheReadTokens: 0, outputTokens: 100 },
+        ],
+      },
+      { warnAt: 70, criticalAt: 85 },
+    );
+    assert.equal(m.context.maxTokens, 512000);
+    assert.equal(m.context.maxSource, 'reference');
+  }
+});
+
+test('上下文占用优先采信实测输入并在生成中空档期平滑回退宿主预估（ADR-0002）', () => {
+  const prefs = { warnAt: 70, criticalAt: 85 };
+
+  // 1. 首轮已完成：LS 预估 29521，服务端实测 21237 -> 主卡显示 21237，Δ = -8284
+  const settled = computeMetricsFromProjection(
+    'conv-measured',
+    {
+      summary: { status: 'CASCADE_RUN_STATUS_IDLE', stepCount: 2 },
+      steps: [
+        { index: 0, type: 'USER_INPUT', status: 'DONE' },
+        { index: 1, type: 'PLANNER_RESPONSE', status: 'DONE' },
+      ],
+      generatorMetadata: [
+        {
+          index: 0,
+          stepIndices: [1],
+          model: 'MODEL_PLACEHOLDER_M525',
+          usage: { inputTokens: 21237, cacheReadTokens: 0, outputTokens: 1585 },
+          contextWindow: { estimatedTokensUsed: 29521, maxContextTokens: 512000 },
+        },
+      ],
+    },
+    prefs,
+  );
+  assert.equal(settled.context.usedTokens, 21237);
+  assert.equal(settled.context.usedSource, 'measured');
+  assert.equal(settled.context.preflightTokens, 29521);
+  assert.equal(settled.context.estimationDelta, -8284);
+
+  // 2. 新一轮刚发出请求尚未返回 usage（全 0 / 空）-> 捕获新轮 preflight 34000
+  const running = computeMetricsFromProjection(
+    'conv-running-preflight',
+    {
+      summary: { status: 'CASCADE_RUN_STATUS_RUNNING', stepCount: 4 },
+      steps: [
+        { index: 0, type: 'USER_INPUT', status: 'DONE' },
+        { index: 1, type: 'PLANNER_RESPONSE', status: 'DONE' },
+        { index: 2, type: 'USER_INPUT', status: 'DONE' },
+        { index: 3, type: 'PLANNER_RESPONSE', status: 'GENERATING' },
+      ],
+      generatorMetadata: [
+        {
+          index: 0,
+          stepIndices: [1],
+          model: 'MODEL_PLACEHOLDER_M525',
+          usage: { inputTokens: 21237, cacheReadTokens: 0, outputTokens: 1585 },
+          contextWindow: { estimatedTokensUsed: 29521, maxContextTokens: 512000 },
+        },
+        {
+          index: 1,
+          stepIndices: [3],
+          model: 'MODEL_PLACEHOLDER_M532',
+          modelDisplayName: 'Gemini 4 Neon (High)',
+          usage: null,
+          contextWindow: { estimatedTokensUsed: 34000, maxContextTokens: 512000 },
+        },
+      ],
+    },
+    prefs,
+  );
+  assert.equal(running.conversation.model, 'Gemini 4 Neon (High)');
+  assert.equal(running.context.usedTokens, 34000);
+  assert.equal(running.context.usedSource, 'preflight');
+  assert.equal(running.context.estimationDelta, null);
 });

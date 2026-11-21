@@ -9,7 +9,8 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const CONVERSATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MODEL_SETTING_RE = /The user changed setting `Model Selection` from [^`\n]+? to ([^.<\n]+)\./;
+// 以句末点号加空白/行尾截断，避免 Gemini 3.8 / Claude 5.5 等版本号中的小数点误截断
+const MODEL_SETTING_RE = /The user changed setting `Model Selection` from [^`\n]+? to ([^<\n]+?)\.(?=\s|$)/;
 const SUBAGENT_ID_RE = /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i;
 
 /**
@@ -45,17 +46,18 @@ function parseTimestampMs(value) {
  * 解析 transcript.jsonl 原始文本，容忍末尾正在写入导致的半行截断。
  *
  * @param {string} rawText transcript.jsonl 全文
- * @return {{ steps: object[], modelHint: string|null, titleHint: string|null, subagentCalls: object[], skippedLines: number }}
+ * @return {{ steps: object[], modelHint: string|null, rawModelHint: string|null, titleHint: string|null, subagentCalls: object[], skippedLines: number }}
  */
 export function parseTranscriptText(rawText) {
   if (typeof rawText !== 'string' || !rawText.trim()) {
-    return { steps: [], modelHint: null, titleHint: null, subagentCalls: [], skippedLines: 0 };
+    return { steps: [], modelHint: null, rawModelHint: null, titleHint: null, subagentCalls: [], skippedLines: 0 };
   }
 
   const lines = rawText.split(/\r?\n/);
   const steps = [];
   const subagentCalls = [];
-  let modelHint = null;
+  let settingModelHint = null;
+  let rawModelHint = null;
   let titleHint = null;
   let skippedLines = 0;
 
@@ -82,7 +84,7 @@ export function parseTranscriptText(rawText) {
     if (type === 'USER_INPUT' && content) {
       const modelMatch = content.match(MODEL_SETTING_RE);
       if (modelMatch) {
-        modelHint = modelMatch[1].trim();
+        settingModelHint = modelMatch[1].trim();
       }
       if (!titleHint) {
         const reqMatch = content.match(/<USER_REQUEST>\s*([\s\S]*?)\s*<\/USER_REQUEST>/);
@@ -91,6 +93,10 @@ export function parseTranscriptText(rawText) {
           titleHint = rawTitle.slice(0, 64);
         }
       }
+    }
+
+    if (typeof row.model === 'string' && row.model.trim()) {
+      rawModelHint = row.model.trim();
     }
 
     const toolCalls = Array.isArray(row.tool_calls) ? row.tool_calls : [];
@@ -128,7 +134,14 @@ export function parseTranscriptText(rawText) {
     });
   }
 
-  return { steps, modelHint, titleHint, subagentCalls, skippedLines };
+  return {
+    steps,
+    modelHint: settingModelHint || rawModelHint,
+    rawModelHint,
+    titleHint,
+    subagentCalls,
+    skippedLines,
+  };
 }
 
 /**

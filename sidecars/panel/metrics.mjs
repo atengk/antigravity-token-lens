@@ -6,28 +6,75 @@
  */
 
 const MODEL_ALIASES = new Map([
-  ['model_placeholder_m525', { key: 'gemini-4-hydrogen', display: 'Gemini 4 Hydrogen' }],
-  ['model_placeholder_m528', { key: 'gemini-4-hydrogen', display: 'Gemini 4 Hydrogen' }],
+  // Gemini 4 Neon
+  ['model_placeholder_m532', { key: 'gemini-4-neon', display: 'Gemini 4 Neon (High)' }],
+  ['model_placeholder_m535', { key: 'gemini-4-neon', display: 'Gemini 4 Neon (XHigh)' }],
+  ['model_placeholder_m533', { key: 'gemini-4-neon', display: 'Gemini 4 Neon (Medium)' }],
+  ['model_placeholder_m534', { key: 'gemini-4-neon', display: 'Gemini 4 Neon (Low)' }],
+  // Gemini 4 Argon
+  ['model_placeholder_m417', { key: 'gemini-4-argon', display: 'Gemini 4 Argon (High)' }],
+  ['model_placeholder_m418', { key: 'gemini-4-argon', display: 'Gemini 4 Argon (Medium)' }],
+  ['model_placeholder_m419', { key: 'gemini-4-argon', display: 'Gemini 4 Argon (Low)' }],
+  // Gemini 4 Hydrogen
+  ['model_placeholder_m525', { key: 'gemini-4-hydrogen', display: 'Gemini 4 Hydrogen (High)' }],
+  ['model_placeholder_m528', { key: 'gemini-4-hydrogen', display: 'Gemini 4 Hydrogen (XHigh)' }],
+  ['model_placeholder_m526', { key: 'gemini-4-hydrogen', display: 'Gemini 4 Hydrogen (Medium)' }],
+  ['model_placeholder_m527', { key: 'gemini-4-hydrogen', display: 'Gemini 4 Hydrogen (Low)' }],
+  // Orchestrator & Carbon
+  ['model_placeholder_m537', { key: 'orchestrator-neon', display: 'Orchestrator (Neon)' }],
+  ['model_placeholder_m668', { key: 'orchestrator-argon', display: 'Orchestrator (Argon)' }],
+  ['model_placeholder_m670', { key: 'gemini-4-carbon', display: 'Gemini 4 Carbon' }],
+  // Gemini 3.8 Flash
   ['model_placeholder_m318', { key: 'gemini-3.8-flash', display: 'Gemini 3.8 Flash (High)' }],
   ['model_placeholder_m319', { key: 'gemini-3.8-flash', display: 'Gemini 3.8 Flash (Medium)' }],
   ['model_placeholder_m320', { key: 'gemini-3.8-flash', display: 'Gemini 3.8 Flash (Low)' }],
+  // Claude 5.5 & 4.6
+  ['model_placeholder_m400', { key: 'claude-opus-5.5', display: 'Claude Opus 5.5 (Low)' }],
+  ['model_placeholder_m401', { key: 'claude-opus-5.5', display: 'Claude Opus 5.5 (Medium)' }],
+  ['model_placeholder_m402', { key: 'claude-opus-5.5', display: 'Claude Opus 5.5 (High)' }],
+  ['model_placeholder_m403', { key: 'claude-sonnet-5.5', display: 'Claude Sonnet 5.5 (Low)' }],
+  ['model_placeholder_m404', { key: 'claude-sonnet-5.5', display: 'Claude Sonnet 5.5 (Medium)' }],
+  ['model_placeholder_m405', { key: 'claude-sonnet-5.5', display: 'Claude Sonnet 5.5 (High)' }],
   ['model_placeholder_m35', { key: 'claude-sonnet-4.6', display: 'Claude Sonnet 4.6 (Thinking)' }],
   ['model_placeholder_m26', { key: 'claude-opus-4.6', display: 'Claude Opus 4.6 (Thinking)' }],
+  // GPT-OSS
   ['model_openai_gpt_oss_120b_medium', { key: 'gpt-oss-120b', display: 'GPT-OSS 120B (Medium)' }],
 ]);
 
+// 依据 ADR-0001：统一采用 Antigravity 宿主有效上下文上限作为离线/首轮兜底基准
 const MODEL_DEFAULT_LIMITS = new Map([
+  ['gemini-4-neon', 512_000],
   ['gemini-4-hydrogen', 512_000],
   ['gemini-4-argon', 512_000],
-  ['gemini-3.8-flash', 1_048_576],
+  ['gemini-4-carbon', 512_000],
+  ['orchestrator-neon', 512_000],
+  ['orchestrator-argon', 512_000],
+  ['gemini-3.8-flash', 512_000],
   ['gemini-2.5-pro', 1_048_576],
   ['gemini-2.5-flash', 1_048_576],
+  ['claude-sonnet-5.5', 512_000],
+  ['claude-opus-5.5', 512_000],
   ['claude-sonnet-4.6', 200_000],
   ['claude-opus-4.6', 200_000],
-  ['claude-sonnet-5.5', 1_000_000],
-  ['claude-opus-5.5', 1_000_000],
   ['gpt-oss-120b', 131_072],
 ]);
+
+const MODEL_FAMILY_PATTERNS = [
+  [/gemini[-_\s]*4[-_\s]*neon/, 'gemini-4-neon'],
+  [/gemini[-_\s]*4[-_\s]*hydrogen/, 'gemini-4-hydrogen'],
+  [/gemini[-_\s]*4[-_\s]*argon/, 'gemini-4-argon'],
+  [/gemini[-_\s]*4[-_\s]*carbon/, 'gemini-4-carbon'],
+  [/orchestrator.*neon/, 'orchestrator-neon'],
+  [/orchestrator.*(?:argon|g1[-_\s]*pro)/, 'orchestrator-argon'],
+  [/gemini[-_\s]*3\.8[-_\s]*flash/, 'gemini-3.8-flash'],
+  [/gemini[-_\s]*2\.5[-_\s]*pro/, 'gemini-2.5-pro'],
+  [/gemini[-_\s]*2\.5[-_\s]*flash/, 'gemini-2.5-flash'],
+  [/claude[-_\s]*sonnet[-_\s]*5[.\s-]*5/, 'claude-sonnet-5.5'],
+  [/claude[-_\s]*opus[-_\s]*5[.\s-]*5/, 'claude-opus-5.5'],
+  [/claude[-_\s]*sonnet/, 'claude-sonnet-4.6'],
+  [/claude[-_\s]*opus/, 'claude-opus-4.6'],
+  [/gpt[-_\s]*oss[-_\s]*120b/, 'gpt-oss-120b'],
+];
 
 const MIN_VALID_DURATION_SEC = 0.05;
 const MIN_PEAK_DURATION_SEC = 0.25;
@@ -43,36 +90,62 @@ const CUSTOM_SYSTEM_SECTIONS = new Set([
   'slash_commands',
 ]);
 
+function normalizeModelFamilyKey(probe) {
+  if (!probe) return null;
+  for (const [pattern, familyKey] of MODEL_FAMILY_PATTERNS) {
+    if (pattern.test(probe)) return familyKey;
+  }
+  return null;
+}
+
+function findCatalogEntry(modelCatalog, cleanRaw, cleanDisplay, cleanResp) {
+  if (!Array.isArray(modelCatalog) || modelCatalog.length === 0) return null;
+  const targets = [cleanRaw, cleanResp, cleanDisplay].filter(Boolean).map((s) => s.toLowerCase());
+  if (targets.length === 0) return null;
+  for (const entry of modelCatalog) {
+    if (!entry || typeof entry !== 'object') continue;
+    const candidates = [entry.rawModel, entry.modelId, entry.display]
+      .filter((v) => typeof v === 'string' && v.trim())
+      .map((v) => v.trim().toLowerCase());
+    if (targets.some((t) => candidates.includes(t))) {
+      return entry;
+    }
+  }
+  return null;
+}
+
 /**
  * 将原始模型标识符与显示名称规范为统一键与展示文案。
+ * 解析优先级：在线实时目录（GetUserStatus）> 静态别名兜底 > 家族正则与后缀剥离归一化。
  *
  * @param {string|null} rawModel 原始模型枚举或标识
  * @param {string|null} [displayName=null] 宿主上报的可读模型名称
  * @param {string|null} [responseModel=null] 响应模型 ID
+ * @param {Array<object>|null} [modelCatalog=null] GetUserStatus 实时模型目录
  * @return {{ key: string|null, display: string }}
  */
-export function resolveModelInfo(rawModel, displayName = null, responseModel = null) {
+export function resolveModelInfo(rawModel, displayName = null, responseModel = null, modelCatalog = null) {
   const cleanDisplay = typeof displayName === 'string' && displayName.trim() ? displayName.trim() : null;
   const cleanResp = typeof responseModel === 'string' && responseModel.trim() ? responseModel.trim() : null;
   const cleanRaw = typeof rawModel === 'string' && rawModel.trim() ? rawModel.trim() : null;
 
+  const catalogEntry = findCatalogEntry(modelCatalog, cleanRaw, cleanDisplay, cleanResp);
   const alias = cleanRaw ? MODEL_ALIASES.get(cleanRaw.toLowerCase()) : null;
-  const display = cleanDisplay || alias?.display || cleanResp || cleanRaw || 'Unknown';
+  const display = cleanDisplay || catalogEntry?.display || alias?.display || cleanResp || cleanRaw || 'Unknown';
 
-  const probe = (cleanResp || cleanDisplay || alias?.key || cleanRaw || '').toLowerCase();
-  let key = alias?.key || null;
+  const probe = (
+    catalogEntry?.modelId ||
+    catalogEntry?.display ||
+    cleanResp ||
+    cleanDisplay ||
+    alias?.key ||
+    cleanRaw ||
+    ''
+  ).toLowerCase();
+
+  let key = normalizeModelFamilyKey(probe) || alias?.key || null;
   if (!key && probe) {
-    if (probe.includes('gemini-4-hydrogen') || probe.includes('gemini 4 hydrogen')) key = 'gemini-4-hydrogen';
-    else if (probe.includes('gemini-4-argon') || probe.includes('gemini 4 argon')) key = 'gemini-4-argon';
-    else if (probe.includes('gemini-3.8-flash') || probe.includes('gemini 3.8 flash')) key = 'gemini-3.8-flash';
-    else if (probe.includes('gemini-2.5-pro') || probe.includes('gemini 2.5 pro')) key = 'gemini-2.5-pro';
-    else if (probe.includes('gemini-2.5-flash') || probe.includes('gemini 2.5 flash')) key = 'gemini-2.5-flash';
-    else if (probe.includes('claude-sonnet-5.5') || probe.includes('claude sonnet 5.5')) key = 'claude-sonnet-5.5';
-    else if (probe.includes('claude-opus-5.5') || probe.includes('claude opus 5.5')) key = 'claude-opus-5.5';
-    else if (probe.includes('claude-sonnet') || probe.includes('claude sonnet')) key = 'claude-sonnet-4.6';
-    else if (probe.includes('claude-opus') || probe.includes('claude opus')) key = 'claude-opus-4.6';
-    else if (probe.includes('gpt-oss-120b') || probe.includes('gpt oss 120b')) key = 'gpt-oss-120b';
-    else if (cleanResp) key = cleanResp.toLowerCase();
+    if (cleanResp) key = cleanResp.toLowerCase();
     else {
       // 对未预置模型名剥离档位后缀（如 (High)/(Thinking)）后归一化，确保用户自定义上限可跨会话复用
       const normalized = probe
@@ -491,9 +564,10 @@ function resolveActiveRun(summary, steps) {
  * @param {string} conversationId 会话 ID
  * @param {object} proj Trajectory 投影
  * @param {object} preferences 用户偏好
+ * @param {{ modelCatalog?: Array<object>|null }} [options] 附加解析选项
  * @return {object}
  */
-export function computeMetricsFromProjection(conversationId, proj, preferences) {
+export function computeMetricsFromProjection(conversationId, proj, preferences, { modelCatalog = null } = {}) {
   const summary = proj.summary || {};
   const steps = Array.isArray(proj.steps) ? proj.steps : [];
   const gms = Array.isArray(proj.generatorMetadata) ? proj.generatorMetadata : [];
@@ -503,6 +577,8 @@ export function computeMetricsFromProjection(conversationId, proj, preferences) 
   const ttftSamples = [];
   let latestContextWindow = null;
   let latestModelInfo = { key: null, display: 'Unknown' };
+  let latestMeasuredPromptTokens = null;
+  let latestGmPendingPreflight = false;
   let budgetSource = null;
   let totalStreamingSec = 0;
   let totalStreamingTokens = 0;
@@ -527,28 +603,39 @@ export function computeMetricsFromProjection(conversationId, proj, preferences) 
     }
 
     const u = gm.usage;
-    if (!u) continue;
-
-    const inputTokens = u.inputTokens ?? 0;
-    const cacheReadTokens = u.cacheReadTokens ?? 0;
-    const cacheWriteTokens = u.cacheWriteTokens ?? 0;
-    const outputTokens = u.outputTokens ?? 0;
-    const thinkingTokens = u.thinkingOutputTokens ?? 0;
-    const responseTokens = u.responseOutputTokens ?? Math.max(0, outputTokens - thinkingTokens);
-
-    if (inputTokens === 0 && cacheReadTokens === 0 && cacheWriteTokens === 0 && outputTokens === 0) {
-      continue;
+    const rawModelCandidate = gm.model || u?.model || gm.plannerModelName;
+    if (rawModelCandidate || gm.modelDisplayName || gm.responseModel) {
+      latestModelInfo = resolveModelInfo(
+        rawModelCandidate,
+        gm.modelDisplayName,
+        gm.responseModel || gm.plannerModelName,
+        modelCatalog,
+      );
     }
-
-    const modelInfo = resolveModelInfo(
-      gm.model || u.model || gm.plannerModelName,
-      gm.modelDisplayName,
-      gm.responseModel || gm.plannerModelName,
-    );
-    latestModelInfo = modelInfo;
     if (gm.contextWindow) {
       latestContextWindow = gm.contextWindow;
     }
+
+    const inputTokens = u?.inputTokens ?? 0;
+    const cacheReadTokens = u?.cacheReadTokens ?? 0;
+    const cacheWriteTokens = u?.cacheWriteTokens ?? 0;
+    const outputTokens = u?.outputTokens ?? 0;
+    const thinkingTokens = u?.thinkingOutputTokens ?? 0;
+    const responseTokens = u?.responseOutputTokens ?? Math.max(0, outputTokens - thinkingTokens);
+    const measuredPromptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
+
+    if (measuredPromptTokens > 0) {
+      latestMeasuredPromptTokens = measuredPromptTokens;
+      latestGmPendingPreflight = false;
+    } else if (Number.isFinite(gm.contextWindow?.estimatedTokensUsed) && gm.contextWindow.estimatedTokensUsed > 0) {
+      latestGmPendingPreflight = true;
+    }
+
+    if (!u || (measuredPromptTokens === 0 && outputTokens === 0)) {
+      continue;
+    }
+
+    const modelInfo = latestModelInfo;
 
     const associatedSteps = gm.stepIndices
       .map((idx) => steps[idx])
@@ -639,7 +726,7 @@ export function computeMetricsFromProjection(conversationId, proj, preferences) 
       retryCount: gm.retrySummary?.count || 0,
       retryTokens,
       tools: summarizeStepTools(gm.stepIndices, steps),
-      contextSnapshotTokens: gm.contextWindow?.estimatedTokensUsed ?? (inputTokens + cacheReadTokens),
+      contextSnapshotTokens: measuredPromptTokens > 0 ? measuredPromptTokens : (gm.contextWindow?.estimatedTokensUsed ?? null),
       createdAt: lastStep?.createdAt || gm.chatStartCreatedAt || null,
     };
 
@@ -659,9 +746,27 @@ export function computeMetricsFromProjection(conversationId, proj, preferences) 
 
   const peakStreamingTps = stablePeakTps ?? fallbackPeakTps;
   const latestTurn = turns.at(-1) || null;
-  const usedTokens =
-    latestContextWindow?.estimatedTokensUsed ??
-    (latestTurn ? latestTurn.inputTokens + latestTurn.cacheReadTokens + latestTurn.cacheWriteTokens : null);
+  const preflightTokens = Number.isFinite(latestContextWindow?.estimatedTokensUsed)
+    ? latestContextWindow.estimatedTokensUsed
+    : null;
+
+  // 依据 ADR-0002：已完成轮优先采用服务端实测输入，生成中空档期或缺失 usage 时平滑回退到宿主预估
+  let usedTokens = null;
+  let usedSource = 'unknown';
+  if (!latestGmPendingPreflight && latestMeasuredPromptTokens !== null && latestMeasuredPromptTokens > 0) {
+    usedTokens = latestMeasuredPromptTokens;
+    usedSource = 'measured';
+  } else if (preflightTokens !== null) {
+    usedTokens = preflightTokens;
+    usedSource = 'preflight';
+  } else if (latestMeasuredPromptTokens !== null && latestMeasuredPromptTokens > 0) {
+    usedTokens = latestMeasuredPromptTokens;
+    usedSource = 'measured';
+  }
+  const estimationDelta =
+    usedSource === 'measured' && usedTokens !== null && preflightTokens !== null
+      ? usedTokens - preflightTokens
+      : null;
 
   const { maxTokens, maxSource } = resolveContextLimit({
     conversationId,
@@ -726,6 +831,9 @@ export function computeMetricsFromProjection(conversationId, proj, preferences) 
     activeRun,
     context: {
       usedTokens,
+      usedSource,
+      preflightTokens,
+      estimationDelta,
       maxTokens,
       maxSource,
       remainingTokens,
@@ -780,9 +888,14 @@ export function computeMetricsFromProjection(conversationId, proj, preferences) 
  * @param {object} preferences 用户偏好
  * @return {object}
  */
-export function computeMetricsFromTranscript(conversationId, local, preferences) {
+export function computeMetricsFromTranscript(conversationId, local, preferences, { modelCatalog = null } = {}) {
   const steps = Array.isArray(local?.steps) ? local.steps : [];
-  const modelInfo = resolveModelInfo(null, local?.modelHint, null);
+  const rawHintInfo = local?.rawModelHint ? resolveModelInfo(local.rawModelHint, null, null, modelCatalog) : null;
+  const settingHintInfo = local?.modelHint ? resolveModelInfo(null, local.modelHint, null, modelCatalog) : null;
+  const modelInfo =
+    rawHintInfo && settingHintInfo && rawHintInfo.key && settingHintInfo.key && rawHintInfo.key !== settingHintInfo.key
+      ? rawHintInfo
+      : resolveModelInfo(local?.rawModelHint || null, local?.modelHint || null, null, modelCatalog);
 
   const turns = [];
   const totals = emptyAccumulator();
@@ -916,6 +1029,9 @@ export function computeMetricsFromTranscript(conversationId, local, preferences)
     activeRun: null,
     context: {
       usedTokens,
+      usedSource: usedTokens !== null ? 'measured' : 'unknown',
+      preflightTokens: null,
+      estimationDelta: null,
       maxTokens,
       maxSource,
       remainingTokens: usedTokens !== null && maxTokens ? Math.max(0, maxTokens - usedTokens) : null,

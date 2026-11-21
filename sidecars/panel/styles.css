@@ -803,6 +803,12 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
+.tl-bk-note {
+  font-size: 11px;
+  padding: 2px 2px 4px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 设置抽屉 */
 .tl-settings-grid {
   display: flex;

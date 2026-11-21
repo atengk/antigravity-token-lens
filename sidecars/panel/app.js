@@ -27,6 +27,10 @@
       srcHost: '宿主实时上报',
       srcRef: '模型参考上限',
       srcUnknown: '上限未知（可在右上角设置）',
+      usedMeasured: '实测占用',
+      usedPreflight: '预估占用',
+      breakdownPreflightPrefix: '构成明细为宿主发包前预估',
+      breakdownDeltaPrefix: '与实测差值',
       warnAlert: '上下文占用偏高，建议留意长文件与大输出',
       critAlert: '上下文接近上限，建议执行 /compact 或开启新会话',
       speedTitle: '纯流式速率',
@@ -117,6 +121,10 @@
       srcHost: 'Host reported',
       srcRef: 'Reference limit',
       srcUnknown: 'Unknown limit (set in gear)',
+      usedMeasured: 'Measured',
+      usedPreflight: 'Est.',
+      breakdownPreflightPrefix: 'Breakdown uses host pre-flight estimate',
+      breakdownDeltaPrefix: 'Δ vs measured',
       warnAlert: 'Context usage is rising; watch large tool outputs.',
       critAlert: 'Context nearly full. Consider /compact or starting a new chat.',
       speedTitle: 'Streaming Speed',
@@ -499,7 +507,9 @@
         : '';
     $('ctx-remaining').textContent = `${remBase}${growthNote}`;
     const srcMap = { override: 'srcOverride', host: 'srcHost', reference: 'srcRef', unknown: 'srcUnknown' };
-    $('ctx-max-source').textContent = t(srcMap[ctx.maxSource] || 'srcUnknown');
+    const usedMap = { measured: 'usedMeasured', preflight: 'usedPreflight' };
+    const usedPrefix = usedMap[ctx.usedSource] ? `${t(usedMap[ctx.usedSource])} · ` : '';
+    $('ctx-max-source').textContent = `${usedPrefix}${t(srcMap[ctx.maxSource] || 'srcUnknown')}`;
 
     const alertBanner = $('ctx-alert-banner');
     if (ctx.alertLevel === 'critical' || ctx.alertLevel === 'warn') {
@@ -560,7 +570,7 @@
     }
 
     // 5. 下钻 Tabs
-    renderBreakdownTab(ctx.breakdown);
+    renderBreakdownTab(ctx.breakdown, ctx.estimationDelta);
     renderTurnsTab(snap.turns || []);
     renderSubagentsTab(snap.subagents || []);
     renderDiagnosticsTab(snap);
@@ -728,7 +738,13 @@
     container.appendChild(svg);
   }
 
-  function renderBreakdownTab(breakdown) {
+  function formatSignedDelta(delta) {
+    if (typeof delta !== 'number' || !Number.isFinite(delta) || delta === 0) return null;
+    const sign = delta > 0 ? '+' : '-';
+    return `${sign}${fmtCompact(Math.abs(delta))}`;
+  }
+
+  function renderBreakdownTab(breakdown, estimationDelta = null) {
     const pane = $('tab-breakdown');
     pane.replaceChildren();
     if (!breakdown || !breakdown.groups?.length) {
@@ -738,6 +754,13 @@
       pane.appendChild(msg);
       return;
     }
+
+    const deltaStr = formatSignedDelta(estimationDelta);
+    const note = document.createElement('div');
+    note.className = 'tl-bk-note tl-muted';
+    const baseText = `${t('breakdownPreflightPrefix')} (${fmtCompact(breakdown.totalTokens)})`;
+    note.textContent = deltaStr ? `${baseText} · ${t('breakdownDeltaPrefix')} ${deltaStr}` : baseText;
+    pane.appendChild(note);
 
     if (breakdown.topMessages?.length) {
       pane.appendChild(buildBreakdownGroupCard('top', t('topHotspots'), '', breakdown.topMessages));
