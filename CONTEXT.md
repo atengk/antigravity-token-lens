@@ -89,3 +89,17 @@ _Avoid_: 单会话累计消耗、配额桶
 **Time-Bucketed Usage（周期分桶用量）**:
 按本机时区自然日、自然周（ISO Week）、自然月或自然年汇总的模型级 `Uncached Input`、`Cache Read` 与 `Output` 消耗统计。
 _Avoid_: 滑窗配额、5h 限额
+
+### 可用性巡检与告警 (Availability Watchdog & Alerting)
+
+**Availability Watchdog（可用性巡检）**:
+Sidecar 后台持续观测本机 Language Server 全局会话状态与账户配额的独立巡检机制，仅在发生需人工介入的阻塞故障时触发外发消息，与面板内常规上下文水位提醒严格隔离。
+_Avoid_: 面板预警、系统通知
+
+**Alert Channel（告警通知通道）**:
+接收 `Availability Watchdog` 所发出阻塞告警的外部消息投递目标（如飞书、钉钉、企业微信或通用自定义 Webhook）。
+_Avoid_: 桌面弹窗、推送方式
+
+**Watchdog Incident（可用性事件）**:
+由 `Availability Watchdog` 识别的需人工介入阻塞状态（涵盖终态失败、持续重试卡死、上游静默挂起、配额耗尽及 Language Server 失联），按故障指纹去重冷却并跟踪恢复闭环。
+_Avoid_: 告警日志、错误提示

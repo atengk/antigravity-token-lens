@@ -11,7 +11,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseTranscriptText } from '../transcript.mjs';
-import { PreferencesStore, normalizePreferences } from '../store.mjs';
+import { PreferencesStore, normalizePreferences, redactPreferences } from '../store.mjs';
 
 test('parseTranscriptText 能容忍末尾写入截断的半行并提取模型与子代理线索', () => {
   const raw = [
@@ -100,6 +100,57 @@ test('PreferencesStore 支持原子更新、阈值校对与覆盖清除', async 
     // 校验非法阈值防御
     const safe = normalizePreferences({ warnAt: 90, criticalAt: 80 });
     assert.ok(safe.criticalAt > safe.warnAt);
+
+    // Watchdog 配置持久化、凭据掩码回显与保留未修改密钥
+    const withChannel = await store.update({
+      watchdog: {
+        enabled: true,
+        retryThreshold: 4,
+        retryDurationSec: 90,
+        silentStallSec: 240,
+        cooldownMin: 15,
+        notifyRecovery: true,
+        channels: [
+          {
+            id: 'ch-feishu',
+            type: 'feishu',
+            name: '团队飞书群',
+            enabled: true,
+            url: 'https://open.feishu.cn/open-apis/bot/v2/hook/secret-hook-9876',
+            secret: 'my-secret-5678',
+          },
+        ],
+      },
+    });
+    assert.equal(withChannel.watchdog.channels.length, 1);
+    assert.equal(withChannel.watchdog.channels[0].secret, 'my-secret-5678');
+
+    const redacted = redactPreferences(withChannel);
+    const serialized = JSON.stringify(redacted);
+    assert.ok(!serialized.includes('secret-hook-9876'));
+    assert.ok(!serialized.includes('my-secret-5678'));
+    assert.equal(redacted.watchdog.channels[0].hasSecret, true);
+    assert.equal(redacted.watchdog.channels[0].secretMask, '***5678');
+
+    // 更新非敏感字段（前端传回掩码或省略 secret）时应保留原 URL 与 Secret
+    const patched = await store.update({
+      lang: 'zh-CN',
+      watchdog: {
+        channels: [
+          {
+            id: 'ch-feishu',
+            type: 'feishu',
+            name: '改名飞书群',
+            enabled: false,
+            url: redacted.watchdog.channels[0].urlMask,
+          },
+        ],
+      },
+    });
+    assert.equal(patched.watchdog.channels[0].name, '改名飞书群');
+    assert.equal(patched.watchdog.channels[0].enabled, false);
+    assert.equal(patched.watchdog.channels[0].url, 'https://open.feishu.cn/open-apis/bot/v2/hook/secret-hook-9876');
+    assert.equal(patched.watchdog.channels[0].secret, 'my-secret-5678');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

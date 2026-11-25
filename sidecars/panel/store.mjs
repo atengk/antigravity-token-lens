@@ -10,12 +10,24 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { normalizeAlertChannels, redactAlertChannels } from './notifier.mjs';
+
+export const DEFAULT_WATCHDOG_PREFERENCES = Object.freeze({
+  enabled: true,
+  retryThreshold: 3,
+  retryDurationSec: 60,
+  silentStallSec: 180,
+  cooldownMin: 10,
+  notifyRecovery: true,
+  channels: [],
+});
 
 export const DEFAULT_PREFERENCES = Object.freeze({
   lang: 'zh-CN',
   warnAt: 70,
   criticalAt: 85,
   contextLimitOverrides: {},
+  watchdog: DEFAULT_WATCHDOG_PREFERENCES,
 });
 
 const MAX_OVERRIDES = 100;
@@ -71,12 +83,42 @@ export function resolvePlatformPaths(env = process.env, home = homedir()) {
   };
 }
 
+function clampInt(raw, fallback, min, max) {
+  const num = Number(raw);
+  return Number.isInteger(num) && num >= min && num <= max ? num : fallback;
+}
+
+/**
+ * 校验并规范化可用性巡检配置，保留或脱敏通道凭据。
+ *
+ * @param {unknown} raw 原始巡检配置
+ * @param {object} [base=DEFAULT_WATCHDOG_PREFERENCES] 基础配置（用于按 ID 继承既有秘钥）
+ * @return {object}
+ */
+export function normalizeWatchdogPreferences(raw, base = DEFAULT_WATCHDOG_PREFERENCES) {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const existingChannels = Array.isArray(base?.channels) ? base.channels : [];
+  const channels = src.channels !== undefined
+    ? normalizeAlertChannels(src.channels, existingChannels)
+    : normalizeAlertChannels(existingChannels, existingChannels);
+
+  return {
+    enabled: typeof src.enabled === 'boolean' ? src.enabled : Boolean(base?.enabled ?? true),
+    retryThreshold: clampInt(src.retryThreshold, base?.retryThreshold ?? 3, 1, 20),
+    retryDurationSec: clampInt(src.retryDurationSec, base?.retryDurationSec ?? 60, 15, 1800),
+    silentStallSec: clampInt(src.silentStallSec, base?.silentStallSec ?? 180, 30, 3600),
+    cooldownMin: clampInt(src.cooldownMin, base?.cooldownMin ?? 10, 1, 240),
+    notifyRecovery: typeof src.notifyRecovery === 'boolean' ? src.notifyRecovery : Boolean(base?.notifyRecovery ?? true),
+    channels,
+  };
+}
+
 /**
  * 校验并规范化用户偏好对象。
  *
  * @param {unknown} raw 原始偏好输入
  * @param {object} [base=DEFAULT_PREFERENCES] 基础默认值
- * @return {{ lang: string, warnAt: number, criticalAt: number, contextLimitOverrides: Record<string, number> }}
+ * @return {{ lang: string, warnAt: number, criticalAt: number, contextLimitOverrides: Record<string, number>, watchdog: object }}
  */
 export function normalizePreferences(raw, base = DEFAULT_PREFERENCES) {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -107,7 +149,26 @@ export function normalizePreferences(raw, base = DEFAULT_PREFERENCES) {
     count++;
   }
 
-  return { lang, warnAt, criticalAt, contextLimitOverrides: overrides };
+  const watchdog = normalizeWatchdogPreferences(src.watchdog, base.watchdog || DEFAULT_WATCHDOG_PREFERENCES);
+
+  return { lang, warnAt, criticalAt, contextLimitOverrides: overrides, watchdog };
+}
+
+/**
+ * 生成供前端 UI 与快照响应使用的脱敏偏好副本，彻底剥离明文 Webhook URL 与加签密钥。
+ *
+ * @param {object} prefs 完整偏好配置
+ * @return {object}
+ */
+export function redactPreferences(prefs) {
+  const normalized = normalizePreferences(prefs);
+  return {
+    ...normalized,
+    watchdog: {
+      ...normalized.watchdog,
+      channels: redactAlertChannels(normalized.watchdog.channels),
+    },
+  };
 }
 
 /**
@@ -170,8 +231,12 @@ export class PreferencesStore {
         }
       }
 
+      const mergedWatchdog = input.watchdog && typeof input.watchdog === 'object' && !Array.isArray(input.watchdog)
+        ? { ...current.watchdog, ...input.watchdog }
+        : current.watchdog;
+
       const next = normalizePreferences(
-        { ...current, ...input, contextLimitOverrides: mergedOverrides },
+        { ...current, ...input, contextLimitOverrides: mergedOverrides, watchdog: mergedWatchdog },
         current,
       );
 

@@ -16,8 +16,9 @@ import {
   finalizeSnapshot,
 } from './metrics.mjs';
 import { QuotaHistoryStore, computeQuotaSnapshot } from './quota.mjs';
-import { PreferencesStore, readHostThemeMode, resolvePlatformPaths } from './store.mjs';
+import { PreferencesStore, readHostThemeMode, redactPreferences, resolvePlatformPaths } from './store.mjs';
 import { UsageLedgerStore, aggregateUsageByPeriod } from './usage-ledger.mjs';
+import { AvailabilityWatchdog } from './watchdog.mjs';
 import {
   CONVERSATION_ID_RE,
   listLocalConversations,
@@ -57,6 +58,7 @@ export class PanelService {
   #paths;
   #quotaHistory;
   #usageLedger;
+  #watchdog;
   #prefRevision = 1;
   #lastRpcError = null;
 
@@ -67,8 +69,9 @@ export class PanelService {
    * @param {object} deps.paths 解析后的路径配置
    * @param {QuotaHistoryStore} [deps.quotaHistory] 配额历史采样存储
    * @param {UsageLedgerStore} [deps.usageLedger] 全量周期用量账本存储
+   * @param {AvailabilityWatchdog} [deps.watchdog] 后台可用性巡检器
    */
-  constructor({ lsClient, prefs, paths, quotaHistory = null, usageLedger = null }) {
+  constructor({ lsClient, prefs, paths, quotaHistory = null, usageLedger = null, watchdog = null }) {
     this.#lsClient = lsClient;
     this.#prefs = prefs;
     this.#paths = paths;
@@ -78,27 +81,65 @@ export class PanelService {
       (paths?.dataDir
         ? new UsageLedgerStore({ dataDir: paths.dataDir, appDataCandidates: paths.appDataCandidates || [] })
         : null);
+    this.#watchdog = watchdog;
   }
 
   /**
-   * 读取偏好配置。
+   * 读取脱敏后的偏好配置（掩码隐藏告警通道密钥与完整 URL）。
    *
    * @return {Promise<object>}
    */
-  getPreferences() {
-    return this.#prefs.load();
+  async getPreferences() {
+    const raw = await this.#prefs.load();
+    return redactPreferences(raw);
   }
 
   /**
-   * 更新偏好配置并刷新 ETag 版本戳。
+   * 更新偏好配置、同步巡检器运行时参数并刷新 ETag 版本戳。
    *
    * @param {object} patch 待更新偏好字段
-   * @return {Promise<object>}
+   * @return {Promise<object>} 脱敏后的最新偏好配置
    */
   async updatePreferences(patch) {
     const updated = await this.#prefs.update(patch);
     this.#prefRevision++;
-    return updated;
+    this.#watchdog?.updateConfig(updated.watchdog, { lang: updated.lang });
+    return redactPreferences(updated);
+  }
+
+  /**
+   * 获取后台可用性巡检实时状态与最近 20 条脱敏告警回执。
+   *
+   * @return {object}
+   */
+  getWatchdogStatus() {
+    return this.#watchdog
+      ? this.#watchdog.getStatus()
+      : {
+          enabled: false,
+          running: false,
+          initialized: false,
+          lsHealthy: true,
+          lastPollAt: null,
+          lastQuotaPollAt: null,
+          channelCount: 0,
+          enabledChannelCount: 0,
+          activeIncidents: [],
+          recentDeliveries: [],
+        };
+  }
+
+  /**
+   * 立即发送一次告警通道连通性测试通知。
+   *
+   * @param {{ channelId?: string|null, channel?: object|null }} [params] 测试目标
+   * @return {Promise<{ ok: boolean, error: string|null, results: Array<object> }>}
+   */
+  async testWatchdogChannel({ channelId = null, channel = null } = {}) {
+    if (!this.#watchdog) {
+      return { ok: false, error: 'watchdog_unavailable', results: [] };
+    }
+    return this.#watchdog.sendTestAlert({ channelId, channel });
   }
 
   /**
@@ -205,7 +246,7 @@ export class PanelService {
    * @return {Promise<object>}
    */
   async getSnapshot({ conversationId, etag = null, force = false }) {
-    const preferences = await this.#prefs.load();
+    const preferences = redactPreferences(await this.#prefs.load());
     const hostTheme = await readHostThemeMode(this.#paths.configFile);
 
     if (!conversationId || !CONVERSATION_ID_RE.test(conversationId)) {
@@ -405,7 +446,13 @@ async function startSidecar() {
     appDataCandidates: paths.appDataCandidates || [],
   });
   const lsClient = new LanguageServerClient({ productName: paths.productName });
-  const service = new PanelService({ lsClient, prefs, paths, quotaHistory, usageLedger });
+  const initPrefs = await prefs.load().catch(() => null);
+  const watchdog = new AvailabilityWatchdog({
+    lsClient,
+    config: initPrefs?.watchdog,
+    lang: initPrefs?.lang || 'zh-CN',
+  });
+  const service = new PanelService({ lsClient, prefs, paths, quotaHistory, usageLedger, watchdog });
 
   const indexHtml = readFileSync(join(__dirname, 'index.html'), 'utf8');
   app.page(
@@ -454,6 +501,16 @@ async function startSidecar() {
 
   app.api('/api/preferences', () => service.getPreferences(), 'GET');
   app.api('/api/preferences', (data) => service.updatePreferences(data), 'POST');
+  app.api('/api/watchdog/status', () => service.getWatchdogStatus(), 'GET');
+  app.api(
+    '/api/watchdog/test',
+    (data) =>
+      service.testWatchdogChannel({
+        channelId: data.channelId || null,
+        channel: data.channel || null,
+      }),
+    'POST',
+  );
   app.api(
     '/api/quota',
     (data) =>
@@ -483,6 +540,7 @@ async function startSidecar() {
   }, 3000);
   if (typeof warmupTimer.unref === 'function') warmupTimer.unref();
 
+  watchdog.start();
   return app.run();
 }
 

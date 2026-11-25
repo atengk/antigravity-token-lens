@@ -155,6 +155,60 @@
       statsNoData: '选定周期内暂无 Token 消耗记录。',
       statsLoading: '正在同步本地用量账本...',
       statsScopeNote: '注：统计基于本地持久化全量轨迹账本（涵盖全部主会话与子代理，不含在线重试及缓存写入附加开销）。',
+      settingsTabContext: '上下文与阈值',
+      settingsTabWatchdog: '可用性巡检与通知',
+      wdActivationHint: '提示：重启 Antigravity 后打开一次 Token Lens 面板即可激活后台巡检（切走标签页仍可持续监控）。',
+      wdPillWatching: '巡检中',
+      wdPillAlert: '巡检告警',
+      wdPillPaused: '巡检暂停',
+      wdPillUnconfigured: '待配通知',
+      wdStatusWatching: '巡检运行中 · 最近心跳 {time}',
+      wdStatusPaused: '后台巡检已暂停',
+      wdStatusUninit: '巡检待初始化...',
+      wdLsDown: 'LS 失联',
+      wdActiveIncidents: '{n} 项阻塞告警',
+      wdEnabledLabel: '启用后台可用性巡检（失败 / 重试卡死 / 额满 / LS 失联）',
+      wdRecoveryLabel: '故障或配额重置恢复后发送 [已恢复] 通知',
+      wdRetryCountLabel: '重试触发次数',
+      wdRetrySecLabel: '重试超时 (秒)',
+      wdStallSecLabel: '静默卡死 (秒)',
+      wdCooldownMinLabel: '同故障冷却 (分)',
+      wdChannelsTitle: '通知通道 (Webhook)',
+      wdAddChannel: '+ 添加通道',
+      wdNoChannels: '尚未配置 Webhook 通道，点击右上角“+ 添加通道”接入飞书 / 钉钉 / 企业微信。',
+      wdChTypeLabel: '平台类型',
+      wdChTypeFeishu: '飞书机器人',
+      wdChTypeDingtalk: '钉钉机器人',
+      wdChTypeWecom: '企业微信',
+      wdChTypeWebhook: '通用 Webhook',
+      wdChNameLabel: '通道名称',
+      wdChNamePlaceholder: '如：主力飞书群',
+      wdChUrlLabel: 'Webhook URL',
+      wdChUrlPlaceholderKeep: '留空或保持掩码则沿用已保存 URL',
+      wdChSecretLabel: '加签密钥 Secret（可选）',
+      wdChSecretPlaceholder: '留空则不加签',
+      wdChSecretPlaceholderKeep: '已设置密钥（留空保留原密钥）',
+      wdChClearSecret: '清除密钥',
+      wdChCancel: '取消',
+      wdChTest: '测试',
+      wdChEdit: '编辑',
+      wdChDelete: '删除',
+      wdChTestInline: '测试此通道',
+      wdChApply: '确认通道',
+      wdTestAll: '测试启用通道',
+      wdSave: '保存巡检配置',
+      wdDeliveriesTitle: '最近告警与投递流水 (最多 20 条)',
+      wdNoDeliveries: '暂无触发告警或测试投递记录。',
+      wdMsgSaved: '巡检配置已保存并立即生效。',
+      wdMsgSaveFailed: '保存巡检配置失败，请检查输入格式。',
+      wdMsgInvalidUrl: '请输入有效的 http:// 或 https:// Webhook 地址。',
+      wdMsgTesting: '正在发送测试消息...',
+      wdMsgTestOk: '测试消息发送成功！请检查目标群/接收端。',
+      wdMsgTestNoChannel: '请先添加并启用至少一个通知通道。',
+      wdMsgTestFail: '发送失败：{err}',
+      wdKindAlert: '告警',
+      wdKindRecovery: '恢复',
+      wdKindTest: '测试',
     },
     en: {
       backParent: '← Back to Parent',
@@ -302,6 +356,60 @@
       statsNoData: 'No token usage recorded for this period.',
       statsLoading: 'Syncing local usage ledger...',
       statsScopeNote: 'Computed from persistent local transcript ledger (includes all main chats & subagents; excludes retry & cache-write overhead).',
+      settingsTabContext: 'Context Limits',
+      settingsTabWatchdog: 'Availability Alerts',
+      wdActivationHint: 'Tip: Open Token Lens once after restarting Antigravity to wake background monitoring (keeps running across tabs).',
+      wdPillWatching: 'Watching',
+      wdPillAlert: 'Alerting',
+      wdPillPaused: 'Paused',
+      wdPillUnconfigured: 'No Webhook',
+      wdStatusWatching: 'Watching · last check {time}',
+      wdStatusPaused: 'Background watchdog paused',
+      wdStatusUninit: 'Initializing watchdog...',
+      wdLsDown: 'LS Down',
+      wdActiveIncidents: '{n} active incidents',
+      wdEnabledLabel: 'Enable background watchdog (failures / retries / quota 0% / LS down)',
+      wdRecoveryLabel: 'Send [Recovered] message when issue resolves or quota resets',
+      wdRetryCountLabel: 'Retry Threshold',
+      wdRetrySecLabel: 'Retry Timeout (s)',
+      wdStallSecLabel: 'Silent Hang (s)',
+      wdCooldownMinLabel: 'Cooldown (min)',
+      wdChannelsTitle: 'Alert Channels (Webhook)',
+      wdAddChannel: '+ Add Channel',
+      wdNoChannels: 'No channels yet. Click "+ Add Channel" to connect Feishu, DingTalk, WeCom, or a Webhook.',
+      wdChTypeLabel: 'Platform',
+      wdChTypeFeishu: 'Feishu Bot',
+      wdChTypeDingtalk: 'DingTalk Bot',
+      wdChTypeWecom: 'WeCom Bot',
+      wdChTypeWebhook: 'Generic Webhook',
+      wdChNameLabel: 'Name',
+      wdChNamePlaceholder: 'e.g. Primary Alert Group',
+      wdChUrlLabel: 'Webhook URL',
+      wdChUrlPlaceholderKeep: 'Leave blank to keep existing saved URL',
+      wdChSecretLabel: 'Signing Secret (Optional)',
+      wdChSecretPlaceholder: 'Optional HMAC secret',
+      wdChSecretPlaceholderKeep: 'Secret saved (leave blank to keep)',
+      wdChClearSecret: 'Clear Secret',
+      wdChCancel: 'Cancel',
+      wdChTest: 'Test',
+      wdChEdit: 'Edit',
+      wdChDelete: 'Delete',
+      wdChTestInline: 'Test Channel',
+      wdChApply: 'Apply',
+      wdTestAll: 'Test Enabled',
+      wdSave: 'Save Watchdog',
+      wdDeliveriesTitle: 'Recent Alerts & Deliveries (max 20)',
+      wdNoDeliveries: 'No alert or test deliveries recorded yet.',
+      wdMsgSaved: 'Watchdog settings saved and applied.',
+      wdMsgSaveFailed: 'Failed to save watchdog settings.',
+      wdMsgInvalidUrl: 'Please enter a valid http:// or https:// webhook URL.',
+      wdMsgTesting: 'Sending test alert...',
+      wdMsgTestOk: 'Test message delivered! Check your target group.',
+      wdMsgTestNoChannel: 'Add and enable at least one alert channel first.',
+      wdMsgTestFail: 'Delivery failed: {err}',
+      wdKindAlert: 'Alert',
+      wdKindRecovery: 'Recovered',
+      wdKindTest: 'Test',
     },
   };
 
@@ -334,6 +442,13 @@
     emptyStatsOpen: false,
     lastAutoResetRefreshAt: 0,
     lastClockTickSec: 0,
+    preferences: null,
+    watchdogStatus: null,
+    watchdogChannelsDraft: [],
+    editingChannelId: null,
+    clearSecretDraft: false,
+    settingsTab: 'context',
+    watchdogTimer: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -431,6 +546,37 @@
     $('lbl-warn-at').textContent = t('warnAtLabel');
     $('lbl-crit-at').textContent = t('critAtLabel');
     $('btn-save-settings').textContent = t('saveSettings');
+    $('btn-settings-tab-context').textContent = t('settingsTabContext');
+    $('btn-settings-tab-watchdog').textContent = t('settingsTabWatchdog');
+    $('wd-activation-hint').textContent = t('wdActivationHint');
+    $('lbl-wd-enabled').textContent = t('wdEnabledLabel');
+    $('lbl-wd-recovery').textContent = t('wdRecoveryLabel');
+    $('lbl-wd-retry-count').textContent = t('wdRetryCountLabel');
+    $('lbl-wd-retry-sec').textContent = t('wdRetrySecLabel');
+    $('lbl-wd-stall-sec').textContent = t('wdStallSecLabel');
+    $('lbl-wd-cooldown-min').textContent = t('wdCooldownMinLabel');
+    $('lbl-wd-channels').textContent = t('wdChannelsTitle');
+    $('btn-wd-add-channel').textContent = t('wdAddChannel');
+    $('lbl-wd-ch-type').textContent = t('wdChTypeLabel');
+    $('lbl-wd-ch-name').textContent = t('wdChNameLabel');
+    $('input-wd-ch-name').placeholder = t('wdChNamePlaceholder');
+    $('lbl-wd-ch-url').textContent = t('wdChUrlLabel');
+    $('lbl-wd-ch-secret').textContent = t('wdChSecretLabel');
+    $('btn-wd-ch-clear-secret').textContent = t('wdChClearSecret');
+    $('btn-wd-ch-cancel').textContent = t('wdChCancel');
+    $('btn-wd-ch-test').textContent = t('wdChTestInline');
+    $('btn-wd-ch-apply').textContent = t('wdChApply');
+    $('btn-wd-test-all').textContent = t('wdTestAll');
+    $('btn-wd-save').textContent = t('wdSave');
+    $('lbl-wd-deliveries').textContent = t('wdDeliveriesTitle');
+
+    const chTypeSel = $('input-wd-ch-type');
+    if (chTypeSel && chTypeSel.options.length >= 4) {
+      chTypeSel.options[0].textContent = t('wdChTypeFeishu');
+      chTypeSel.options[1].textContent = t('wdChTypeDingtalk');
+      chTypeSel.options[2].textContent = t('wdChTypeWecom');
+      chTypeSel.options[3].textContent = t('wdChTypeWebhook');
+    }
     $('empty-title').textContent = t('emptyTitle');
     $('empty-desc').textContent = t('emptyDesc');
     $('btn-empty-stats').textContent = t('emptyViewStats');
@@ -453,6 +599,13 @@
     if (state.quota) renderQuotaUi();
     if (state.conversations) renderConversationsUi();
     if (state.stats) renderStatsUi();
+    if (state.watchdogStatus) {
+      renderWatchdogPill();
+      if (!$('settings-drawer').classList.contains('hidden')) {
+        renderWatchdogStatusBox();
+        renderWatchdogDeliveries();
+      }
+    }
   }
 
   async function copyText(text, btnEl) {
@@ -502,6 +655,9 @@
       if (!res.ok) return;
       const data = await res.json();
 
+      if (data.preferences) {
+        state.preferences = data.preferences;
+      }
       if (data.preferences?.lang && data.preferences.lang !== state.lang) {
         state.lang = data.preferences.lang;
         localizeStaticUi();
@@ -584,6 +740,7 @@
     state.quotaTimer = setTimeout(() => {
       void refreshQuota(false);
       void refreshConversations();
+      void refreshWatchdogStatus();
     }, delay);
   }
 
@@ -2077,7 +2234,12 @@
     btnJson.className = 'tl-btn tl-btn-ghost';
     btnJson.textContent = t('exportJson');
     btnJson.addEventListener('click', () => {
-      void copyText(JSON.stringify(snap, null, 2), btnJson);
+      const sanitizedSnap = { ...snap };
+      if (sanitizedSnap.preferences && typeof sanitizedSnap.preferences === 'object') {
+        const { watchdog: _omittedWatchdog, ...restPrefs } = sanitizedSnap.preferences;
+        sanitizedSnap.preferences = restPrefs;
+      }
+      void copyText(JSON.stringify(sanitizedSnap, null, 2), btnJson);
     });
     actions.appendChild(btnJson);
     pane.appendChild(actions);
@@ -2143,16 +2305,392 @@
     void refreshSnapshot(true);
   }
 
-  function openSettingsDrawer() {
+  function fmtClockTime(ts) {
+    if (!ts) return '--:--:--';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return '--:--:--';
+    return d.toLocaleTimeString(state.lang === 'en' ? 'en-US' : 'zh-CN', { hour12: false });
+  }
+
+  function channelTypeLabel(type) {
+    if (type === 'feishu') return t('wdChTypeFeishu');
+    if (type === 'dingtalk') return t('wdChTypeDingtalk');
+    if (type === 'wecom') return t('wdChTypeWecom');
+    return t('wdChTypeWebhook');
+  }
+
+  function showWdFeedback(msg, isOk) {
+    const el = $('wd-feedback');
+    if (!msg) {
+      el.classList.add('hidden');
+      el.textContent = '';
+      return;
+    }
+    el.textContent = msg;
+    el.classList.remove('hidden', 'is-ok', 'is-err');
+    el.classList.add(isOk ? 'is-ok' : 'is-err');
+  }
+
+  async function refreshWatchdogStatus() {
+    try {
+      const res = await apiFetch('/api/watchdog/status');
+      if (!res.ok) return;
+      state.watchdogStatus = await res.json();
+      renderWatchdogPill();
+      if (!$('settings-drawer').classList.contains('hidden')) {
+        renderWatchdogStatusBox();
+        renderWatchdogDeliveries();
+      }
+    } catch {
+      // 巡检状态读取失败不阻塞主面板
+    }
+  }
+
+  function renderWatchdogPill() {
+    const pill = $('watchdog-badge');
+    const wd = state.watchdogStatus;
+    if (!wd) {
+      pill.classList.add('hidden');
+      return;
+    }
+    pill.classList.remove('hidden', 'is-ok', 'is-alert');
+    pill.replaceChildren();
+    const dot = document.createElement('span');
+    dot.className = 'tl-dot';
+    const txt = document.createElement('span');
+
+    const incCount = Array.isArray(wd.activeIncidents) ? wd.activeIncidents.length : 0;
+    if (!wd.enabled) {
+      txt.textContent = t('wdPillPaused');
+    } else if (incCount > 0 || !wd.lsHealthy) {
+      pill.classList.add('is-alert');
+      txt.textContent = incCount > 0 ? `${t('wdPillAlert')} (${incCount})` : t('wdLsDown');
+    } else if (wd.enabledChannelCount > 0) {
+      pill.classList.add('is-ok');
+      txt.textContent = t('wdPillWatching');
+    } else {
+      txt.textContent = t('wdPillUnconfigured');
+    }
+
+    pill.append(dot, txt);
+    pill.title = wd.lastPollAt
+      ? t('wdStatusWatching').replace('{time}', fmtClockTime(wd.lastPollAt))
+      : t('wdStatusUninit');
+  }
+
+  function renderWatchdogStatusBox() {
+    const wd = state.watchdogStatus;
+    const sumEl = $('wd-status-summary');
+    const incEl = $('wd-active-incidents');
+    if (!wd) {
+      sumEl.textContent = t('wdStatusUninit');
+      incEl.classList.add('hidden');
+      return;
+    }
+    if (!wd.enabled) {
+      sumEl.textContent = t('wdStatusPaused');
+    } else if (wd.lastPollAt) {
+      sumEl.textContent = t('wdStatusWatching').replace('{time}', fmtClockTime(wd.lastPollAt));
+    } else {
+      sumEl.textContent = t('wdStatusUninit');
+    }
+
+    const incCount = Array.isArray(wd.activeIncidents) ? wd.activeIncidents.length : 0;
+    if (incCount > 0 || !wd.lsHealthy) {
+      incEl.textContent = !wd.lsHealthy ? t('wdLsDown') : t('wdActiveIncidents').replace('{n}', String(incCount));
+      incEl.classList.remove('hidden');
+    } else {
+      incEl.classList.add('hidden');
+    }
+  }
+
+  function renderWatchdogChannels() {
+    const list = $('wd-channel-list');
+    list.replaceChildren();
+    const channels = state.watchdogChannelsDraft;
+    if (!channels.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tl-muted';
+      empty.style.fontSize = '11px';
+      empty.textContent = t('wdNoChannels');
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const ch of channels) {
+      const row = document.createElement('div');
+      row.className = 'tl-wd-ch-row';
+
+      const main = document.createElement('div');
+      main.className = 'tl-wd-ch-main';
+      const toggle = document.createElement('input');
+      toggle.type = 'checkbox';
+      toggle.checked = ch.enabled !== false;
+      toggle.addEventListener('change', () => {
+        ch.enabled = toggle.checked;
+      });
+
+      const info = document.createElement('div');
+      info.className = 'tl-wd-ch-info';
+      const title = document.createElement('span');
+      title.className = 'tl-wd-ch-title';
+      title.textContent = `[${channelTypeLabel(ch.type)}] ${ch.name}`;
+      const mask = document.createElement('span');
+      mask.className = 'tl-wd-ch-mask';
+      const secSuffix = ch.hasSecret || (ch.secret && !ch.clearSecret) ? ' · HMAC' : '';
+      mask.textContent = `${ch.urlMask || ch.url || ''}${secSuffix}`;
+      info.append(title, mask);
+      main.append(toggle, info);
+
+      const actions = document.createElement('div');
+      actions.className = 'tl-wd-ch-actions';
+
+      const btnTest = document.createElement('button');
+      btnTest.type = 'button';
+      btnTest.className = 'tl-btn tl-btn-ghost';
+      btnTest.textContent = t('wdChTest');
+      btnTest.addEventListener('click', () => void testWatchdogTarget({ channel: ch }));
+
+      const btnEdit = document.createElement('button');
+      btnEdit.type = 'button';
+      btnEdit.className = 'tl-btn tl-btn-ghost';
+      btnEdit.textContent = t('wdChEdit');
+      btnEdit.addEventListener('click', () => openChannelEditor(ch));
+
+      const btnDel = document.createElement('button');
+      btnDel.type = 'button';
+      btnDel.className = 'tl-btn tl-btn-ghost';
+      btnDel.textContent = t('wdChDelete');
+      btnDel.addEventListener('click', () => {
+        state.watchdogChannelsDraft = state.watchdogChannelsDraft.filter((item) => item.id !== ch.id);
+        if (state.editingChannelId === ch.id) closeChannelEditor();
+        renderWatchdogChannels();
+      });
+
+      actions.append(btnTest, btnEdit, btnDel);
+      row.append(main, actions);
+      list.appendChild(row);
+    }
+  }
+
+  function syncChannelEditorSecretVisibility() {
+    const type = $('input-wd-ch-type').value;
+    const supportsSecret = type === 'feishu' || type === 'dingtalk';
+    $('wd-ch-secret-wrap').classList.toggle('hidden', !supportsSecret);
+  }
+
+  function openChannelEditor(ch = null) {
+    state.editingChannelId = ch?.id || null;
+    state.clearSecretDraft = false;
+    $('input-wd-ch-type').value = ch?.type || 'feishu';
+    $('input-wd-ch-name').value = ch?.name || '';
+    $('input-wd-ch-url').value = ch?.url && !String(ch.url).includes('/...***') ? ch.url : '';
+    $('input-wd-ch-url').placeholder = ch?.urlMask
+      ? t('wdChUrlPlaceholderKeep')
+      : 'https://open.feishu.cn/open-apis/bot/v2/hook/...';
+    $('input-wd-ch-secret').value = '';
+    const hasSecret = Boolean(ch?.hasSecret || (ch?.secret && !ch.clearSecret));
+    $('input-wd-ch-secret').placeholder = hasSecret ? t('wdChSecretPlaceholderKeep') : t('wdChSecretPlaceholder');
+    $('btn-wd-ch-clear-secret').classList.toggle('hidden', !hasSecret);
+    syncChannelEditorSecretVisibility();
+    $('wd-channel-editor').classList.remove('hidden');
+  }
+
+  function closeChannelEditor() {
+    state.editingChannelId = null;
+    state.clearSecretDraft = false;
+    $('wd-channel-editor').classList.add('hidden');
+  }
+
+  function buildChannelFromEditor() {
+    const existing = state.editingChannelId
+      ? state.watchdogChannelsDraft.find((c) => c.id === state.editingChannelId) || null
+      : null;
+    const type = $('input-wd-ch-type').value;
+    const name = $('input-wd-ch-name').value.trim() || channelTypeLabel(type);
+    const rawUrl = $('input-wd-ch-url').value.trim();
+    const rawSecret = $('input-wd-ch-secret').value.trim();
+
+    if (!rawUrl && !existing?.urlMask && !existing?.url) {
+      showWdFeedback(t('wdMsgInvalidUrl'), false);
+      return null;
+    }
+    if (rawUrl) {
+      try {
+        const parsed = new URL(rawUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('protocol');
+      } catch {
+        showWdFeedback(t('wdMsgInvalidUrl'), false);
+        return null;
+      }
+    }
+
+    const next = {
+      id: existing?.id || `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      type,
+      name,
+      enabled: existing ? existing.enabled !== false : true,
+      url: rawUrl || existing?.url || existing?.urlMask || '',
+      urlMask: rawUrl || existing?.urlMask || '',
+      hasSecret: state.clearSecretDraft ? false : Boolean(rawSecret || existing?.hasSecret),
+      clearSecret: state.clearSecretDraft,
+    };
+    if (rawSecret) {
+      next.secret = rawSecret;
+      next.clearSecret = false;
+    } else if (existing?.secret && !state.clearSecretDraft) {
+      next.secret = existing.secret;
+    }
+    return next;
+  }
+
+  function applyChannelEditor() {
+    const draft = buildChannelFromEditor();
+    if (!draft) return;
+    const idx = state.watchdogChannelsDraft.findIndex((c) => c.id === draft.id);
+    if (idx >= 0) state.watchdogChannelsDraft[idx] = draft;
+    else state.watchdogChannelsDraft.push(draft);
+    closeChannelEditor();
+    showWdFeedback('', true);
+    renderWatchdogChannels();
+  }
+
+  function renderWatchdogDeliveries() {
+    const list = $('wd-delivery-list');
+    list.replaceChildren();
+    const deliveries = state.watchdogStatus?.recentDeliveries || [];
+    if (!deliveries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tl-muted';
+      empty.style.fontSize = '11px';
+      empty.textContent = t('wdNoDeliveries');
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const d of deliveries) {
+      const row = document.createElement('div');
+      row.className = 'tl-wd-del-row';
+      const head = document.createElement('div');
+      head.className = 'tl-wd-del-head';
+      const kindLbl = d.kind === 'recovery' ? t('wdKindRecovery') : d.kind === 'test' ? t('wdKindTest') : t('wdKindAlert');
+      const left = document.createElement('span');
+      left.textContent = `[${kindLbl}] ${d.title}`;
+      const right = document.createElement('span');
+      right.className = 'tl-wd-del-meta';
+      right.textContent = fmtClockTime(d.ts);
+      head.append(left, right);
+
+      const meta = document.createElement('div');
+      meta.className = 'tl-wd-del-meta';
+      const resParts = (d.channelResults || []).map((r) => `${r.channelName} ${r.ok ? '✓' : `✗ ${r.error || ''}`}`);
+      meta.textContent = resParts.length ? resParts.join(' | ') : d.summary;
+      row.append(head, meta);
+      list.appendChild(row);
+    }
+  }
+
+  function switchSettingsTab(tab) {
+    state.settingsTab = tab === 'watchdog' ? 'watchdog' : 'context';
+    $('btn-settings-tab-context').classList.toggle('is-active', state.settingsTab === 'context');
+    $('btn-settings-tab-watchdog').classList.toggle('is-active', state.settingsTab === 'watchdog');
+    $('settings-pane-context').classList.toggle('hidden', state.settingsTab !== 'context');
+    $('settings-pane-watchdog').classList.toggle('hidden', state.settingsTab !== 'watchdog');
+  }
+
+  function populateWatchdogForm(prefs) {
+    const wd = prefs?.watchdog || {};
+    $('input-wd-enabled').checked = wd.enabled !== false;
+    $('input-wd-recovery').checked = wd.notifyRecovery !== false;
+    $('input-wd-retry-count').value = String(wd.retryThreshold ?? 3);
+    $('input-wd-retry-sec').value = String(wd.retryDurationSec ?? 60);
+    $('input-wd-stall-sec').value = String(wd.silentStallSec ?? 180);
+    $('input-wd-cooldown-min').value = String(wd.cooldownMin ?? 10);
+    state.watchdogChannelsDraft = (Array.isArray(wd.channels) ? wd.channels : []).map((c) => ({ ...c }));
+    closeChannelEditor();
+    showWdFeedback('', true);
+    renderWatchdogChannels();
+    renderWatchdogStatusBox();
+    renderWatchdogDeliveries();
+  }
+
+  async function openSettingsDrawer(targetTab = 'context') {
+    if (!state.preferences) {
+      try {
+        const res = await apiFetch('/api/preferences');
+        if (res.ok) state.preferences = await res.json();
+      } catch {
+        // 忽略偏好预拉取失败
+      }
+    }
     const snap = state.snapshot;
-    const prefs = snap?.preferences || {};
+    const prefs = snap?.preferences || state.preferences || {};
     const c = snap?.conversation || {};
     const overrides = prefs.contextLimitOverrides || {};
     const currentLimit = overrides[c.id] ?? (c.modelKey ? overrides[c.modelKey] : undefined) ?? overrides[c.model] ?? '';
     $('input-max-tokens').value = currentLimit ? String(currentLimit) : '';
     $('input-warn-at').value = String(prefs.warnAt ?? 70);
     $('input-crit-at').value = String(prefs.criticalAt ?? 85);
+    populateWatchdogForm(prefs);
+    switchSettingsTab(targetTab);
     $('settings-drawer').classList.remove('hidden');
+    void refreshWatchdogStatus();
+  }
+
+  async function saveWatchdogSettings() {
+    const payload = {
+      watchdog: {
+        enabled: $('input-wd-enabled').checked,
+        notifyRecovery: $('input-wd-recovery').checked,
+        retryThreshold: Number($('input-wd-retry-count').value),
+        retryDurationSec: Number($('input-wd-retry-sec').value),
+        silentStallSec: Number($('input-wd-stall-sec').value),
+        cooldownMin: Number($('input-wd-cooldown-min').value),
+        channels: state.watchdogChannelsDraft.map((c) => ({
+          id: c.id,
+          type: c.type,
+          name: c.name,
+          enabled: c.enabled !== false,
+          url: c.url || c.urlMask || '',
+          secret: c.secret || undefined,
+          clearSecret: Boolean(c.clearSecret),
+        })),
+      },
+    };
+    const res = await apiFetch('/api/preferences', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      showWdFeedback(t('wdMsgSaveFailed'), false);
+      return;
+    }
+    state.preferences = await res.json();
+    populateWatchdogForm(state.preferences);
+    showWdFeedback(t('wdMsgSaved'), true);
+    state.etag = null;
+    await refreshWatchdogStatus();
+  }
+
+  async function testWatchdogTarget({ channel = null, channelId = null } = {}) {
+    showWdFeedback(t('wdMsgTesting'), true);
+    try {
+      const res = await apiFetch('/api/watchdog/test', {
+        method: 'POST',
+        body: JSON.stringify({ channelId, channel }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showWdFeedback(t('wdMsgTestOk'), true);
+      } else if (data.error === 'no_channels') {
+        showWdFeedback(t('wdMsgTestNoChannel'), false);
+      } else {
+        showWdFeedback(t('wdMsgTestFail').replace('{err}', data.error || 'Unknown error'), false);
+      }
+      await refreshWatchdogStatus();
+    } catch (err) {
+      showWdFeedback(t('wdMsgTestFail').replace('{err}', err?.message || 'Network error'), false);
+    }
   }
 
   async function saveSettings() {
@@ -2273,14 +2811,40 @@
 
     $('btn-settings').addEventListener('click', () => {
       const drawer = $('settings-drawer');
-      if (drawer.classList.contains('hidden')) openSettingsDrawer();
+      if (drawer.classList.contains('hidden')) void openSettingsDrawer('context');
       else drawer.classList.add('hidden');
     });
+    $('watchdog-badge').addEventListener('click', () => {
+      const drawer = $('settings-drawer');
+      if (drawer.classList.contains('hidden') || state.settingsTab !== 'watchdog') {
+        void openSettingsDrawer('watchdog');
+      } else {
+        drawer.classList.add('hidden');
+      }
+    });
+    $('btn-settings-tab-context').addEventListener('click', () => switchSettingsTab('context'));
+    $('btn-settings-tab-watchdog').addEventListener('click', () => switchSettingsTab('watchdog'));
     $('btn-close-settings').addEventListener('click', () => $('settings-drawer').classList.add('hidden'));
     $('btn-reset-limit').addEventListener('click', () => {
       $('input-max-tokens').value = '';
     });
     $('btn-save-settings').addEventListener('click', () => void saveSettings());
+    $('btn-wd-add-channel').addEventListener('click', () => openChannelEditor(null));
+    $('input-wd-ch-type').addEventListener('change', () => syncChannelEditorSecretVisibility());
+    $('btn-wd-ch-clear-secret').addEventListener('click', () => {
+      state.clearSecretDraft = true;
+      $('input-wd-ch-secret').value = '';
+      $('input-wd-ch-secret').placeholder = t('wdChSecretPlaceholder');
+      $('btn-wd-ch-clear-secret').classList.add('hidden');
+    });
+    $('btn-wd-ch-cancel').addEventListener('click', () => closeChannelEditor());
+    $('btn-wd-ch-apply').addEventListener('click', () => applyChannelEditor());
+    $('btn-wd-ch-test').addEventListener('click', () => {
+      const draft = buildChannelFromEditor();
+      if (draft) void testWatchdogTarget({ channel: draft });
+    });
+    $('btn-wd-test-all').addEventListener('click', () => void testWatchdogTarget());
+    $('btn-wd-save').addEventListener('click', () => void saveWatchdogSettings());
 
     for (const btn of document.querySelectorAll('.tl-chip-btn')) {
       btn.addEventListener('click', () => {
@@ -2324,6 +2888,7 @@
     void refreshSnapshot(true);
     void refreshQuota(true);
     void refreshConversations();
+    void refreshWatchdogStatus();
     state.clockTimer = setInterval(() => {
       if (state.snapshot?.conversation?.isRunning) updateRunningTimer();
       const sec = Math.floor(Date.now() / 1000);

@@ -63,6 +63,7 @@
         </span>
         <span id="model-badge" class="tl-badge tl-badge-model">--</span>
         <span id="source-badge" class="tl-badge tl-badge-source">--</span>
+        <button id="watchdog-badge" class="tl-btn tl-wd-pill hidden" type="button"></button>
         <button id="concurrent-badge" class="tl-btn tl-concurrent-pill hidden" type="button"></button>
       </div>
     </section>
@@ -86,7 +87,11 @@
         <span id="lbl-settings-title" class="tl-card-title">上限与预警设置</span>
         <button id="btn-close-settings" class="tl-btn tl-btn-text" type="button">✕</button>
       </div>
-      <div class="tl-settings-grid">
+      <div class="tl-settings-tabs" role="tablist">
+        <button id="btn-settings-tab-context" class="tl-settings-tab is-active" data-settings-tab="context" type="button">上下文与阈值</button>
+        <button id="btn-settings-tab-watchdog" class="tl-settings-tab" data-settings-tab="watchdog" type="button">可用性巡检与通知</button>
+      </div>
+      <div id="settings-pane-context" class="tl-settings-grid">
         <label class="tl-field">
           <span id="lbl-limit-input">当前模型上下文上限 (Tokens)</span>
           <div class="tl-inline-input">
@@ -114,6 +119,94 @@
         <div class="tl-settings-foot">
           <button id="btn-save-settings" class="tl-btn tl-btn-primary" type="button">保存配置</button>
         </div>
+      </div>
+
+      <div id="settings-pane-watchdog" class="tl-settings-grid hidden">
+        <div id="wd-activation-hint" class="tl-wd-hint">重启 Antigravity 后打开一次 Token Lens 面板即可激活后台巡检（切走标签页仍可持续监控）。</div>
+        <div class="tl-wd-status-box">
+          <span id="wd-status-summary" class="tl-wd-status-text">--</span>
+          <span id="wd-active-incidents" class="tl-wd-inc-badge hidden">--</span>
+        </div>
+
+        <label class="tl-check-row">
+          <input id="input-wd-enabled" type="checkbox">
+          <span id="lbl-wd-enabled">启用后台可用性巡检（失败 / 重试卡死 / 额满 / LS 失联）</span>
+        </label>
+        <label class="tl-check-row">
+          <input id="input-wd-recovery" type="checkbox">
+          <span id="lbl-wd-recovery">故障或配额重置恢复后发送 [已恢复] 通知</span>
+        </label>
+
+        <div class="tl-two-fields">
+          <label class="tl-field">
+            <span id="lbl-wd-retry-count">重试触发次数</span>
+            <input id="input-wd-retry-count" type="number" min="1" max="20">
+          </label>
+          <label class="tl-field">
+            <span id="lbl-wd-retry-sec">重试超时 (秒)</span>
+            <input id="input-wd-retry-sec" type="number" min="15" max="1800">
+          </label>
+          <label class="tl-field">
+            <span id="lbl-wd-stall-sec">静默卡死 (秒)</span>
+            <input id="input-wd-stall-sec" type="number" min="30" max="3600">
+          </label>
+          <label class="tl-field">
+            <span id="lbl-wd-cooldown-min">同故障冷却 (分)</span>
+            <input id="input-wd-cooldown-min" type="number" min="1" max="240">
+          </label>
+        </div>
+
+        <div class="tl-wd-sec-head">
+          <span id="lbl-wd-channels" class="tl-card-title">通知通道 (Webhook)</span>
+          <button id="btn-wd-add-channel" class="tl-btn tl-btn-ghost" type="button">+ 添加通道</button>
+        </div>
+        <div id="wd-channel-list" class="tl-wd-channels"></div>
+
+        <div id="wd-channel-editor" class="tl-wd-editor hidden">
+          <div class="tl-two-fields">
+            <label class="tl-field">
+              <span id="lbl-wd-ch-type">平台类型</span>
+              <select id="input-wd-ch-type">
+                <option value="feishu">飞书机器人</option>
+                <option value="dingtalk">钉钉机器人</option>
+                <option value="wecom">企业微信</option>
+                <option value="webhook">通用 Webhook</option>
+              </select>
+            </label>
+            <label class="tl-field">
+              <span id="lbl-wd-ch-name">通道名称</span>
+              <input id="input-wd-ch-name" type="text" maxlength="48" placeholder="如：主力飞书群">
+            </label>
+          </div>
+          <label class="tl-field">
+            <span id="lbl-wd-ch-url">Webhook URL</span>
+            <input id="input-wd-ch-url" type="url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+          </label>
+          <div id="wd-ch-secret-wrap" class="tl-field">
+            <span id="lbl-wd-ch-secret">加签密钥 Secret（可选）</span>
+            <div class="tl-inline-input">
+              <input id="input-wd-ch-secret" type="password" autocomplete="off" placeholder="留空则不加签">
+              <button id="btn-wd-ch-clear-secret" class="tl-btn tl-btn-ghost hidden" type="button">清除密钥</button>
+            </div>
+          </div>
+          <div class="tl-wd-editor-actions">
+            <button id="btn-wd-ch-cancel" class="tl-btn tl-btn-ghost" type="button">取消</button>
+            <button id="btn-wd-ch-test" class="tl-btn tl-btn-ghost" type="button">测试此通道</button>
+            <button id="btn-wd-ch-apply" class="tl-btn tl-btn-primary" type="button">确认通道</button>
+          </div>
+        </div>
+
+        <div id="wd-feedback" class="tl-wd-feedback hidden"></div>
+
+        <div class="tl-settings-foot tl-wd-foot">
+          <button id="btn-wd-test-all" class="tl-btn tl-btn-ghost" type="button">测试启用通道</button>
+          <button id="btn-wd-save" class="tl-btn tl-btn-primary" type="button">保存巡检配置</button>
+        </div>
+
+        <div class="tl-wd-sec-head">
+          <span id="lbl-wd-deliveries" class="tl-card-title">最近告警与投递流水</span>
+        </div>
+        <div id="wd-delivery-list" class="tl-wd-deliveries"></div>
       </div>
     </section>
 

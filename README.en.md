@@ -23,6 +23,10 @@ English | [简体中文](./README.md)
   - Compares cycle time elapsed vs. quota consumed (Pacing Indicator) and computes window-gated `Quota Burn Rate` and depletion ETA alerts from bounded 7-day sparse samples (`quota-history.json`).
 - **Global Conversation Switcher & Concurrent Radar**:
   - Searchable header dropdown for switching across the 50 most recent conversations, with live indicators for concurrent background `RUNNING` sessions.
+- **Background Availability Watchdog & Webhook Alerts**:
+  - Passively monitors all non-archived conversations and subagents every `15s` and account quota/model status every `60s` from the Sidecar backend (establishes a silent baseline at startup—never replays historical failures).
+  - Detects **region-blocked / `403` / `429` / auth errors** (immediate), **stuck retries** (`>= 3` attempts or `>= 60s`), **silent upstream hangs** (`>= 180s` waiting for first token, excluding `WAITING_FOR_USER` and local tool execution), **quota `0%` / disabled models**, and **Language Server disconnects** (`>= 30s`).
+  - Built-in templates for **Feishu (HMAC sign), DingTalk (HMAC sign), WeCom, and Generic JSON Webhook**, using direct outbound delivery with 2 lightweight retries, `10m` per-fingerprint cooldown, `5s` burst aggregation, and `[Recovered]` alerts. Credentials are stored locally (`0o600`), masked in UI responses, stripped from JSON exports, and outbound payloads scrub local paths and secrets.
 - **Pure Streaming Speed & TTFT Breakdown**:
   - Separates `timeToFirstToken` from `streamingDuration` alongside end-to-end (E2E) throughput and thinking vs. response output token splits.
   - Filters ultra-short burst outliers (`< 0.25s` or `< 20` tokens) out of peak calculations and chart scaling.
@@ -99,14 +103,17 @@ cd antigravity-token-lens
 ## Usage & Updating
 
 1. After installation, type **`/token-lens`** in any Antigravity chat and click the sidecar pill to open the **Token Lens** Aux Pane.
-2. Click the gear icon in the panel header to override context limits or adjust alert thresholds, or click `EN` / `中文` to toggle UI language.
-3. To update, run `git pull --ff-only` inside `~/.gemini/config/plugins/token-lens` (or re-run the installer script) and toggle/reload the plugin on the `Customizations` page.
+2. Click the gear icon in the panel header to override context limits or adjust alert thresholds, or switch to the **Availability Alerts** tab (or click the top watchdog pill) to configure Webhook alert channels, test delivery, and inspect the latest `20` delivery logs.
+   - **Activation note**: Open Token Lens once after restarting Antigravity to wake the background watchdog (it keeps running even when you switch tabs).
+3. Click `EN` / `中文` to toggle UI language; JSON snapshot exports automatically omit watchdog channel configs.
+4. To update, run `git pull --ff-only` inside `~/.gemini/config/plugins/token-lens` (or re-run the installer script) and toggle/reload the plugin on the `Customizations` page.
 
 ---
 
 ## Troubleshooting
 
 - **Blank Aux Pane / `net::ERR_EMPTY_RESPONSE` on Windows**: If you use a system-wide proxy tool (such as **Proxifier**), make sure loopback hosts (`localhost; 127.0.0.1; 127.*; ::1`) are routed as **`Direct`** above any catch-all rule for `Antigravity.exe`.
+- **Webhook delivery when VPN fails**: Outbound Webhook requests bypass proxy environment variables and connect directly by default. If your machine uses a full-device **TUN** tunnel and the VPN drops completely, add **`Direct`** bypass rules for your webhook hostnames (e.g. `open.feishu.cn`, `oapi.dingtalk.com`, `qyapi.weixin.qq.com`).
 
 ---
 

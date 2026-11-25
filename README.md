@@ -23,6 +23,10 @@
   - 同屏对比“周期时间进度 vs 额度已耗比例”（Pacing），基于有界 7 天稀疏持久化采样（`quota-history.json`）按分窗口门槛测算实测消耗速率与重置前撞墙预警（ETA）。
 - **全局会话切换与并发雷达**：
   - 顶部支持下拉搜索切换最近 50 条主会话，自动发现并提示后台并发 `RUNNING` 会话，一键跳转排查消耗来源。
+- **后台可用性巡检与 Webhook 告警（Availability Watchdog）**：
+  - Sidecar 后台每 `15s` 被动观测全局非归档任务与子代理、每 `60s` 检查账号配额与模型状态（启动首次扫描静默建立基线，绝不翻历史旧账）。
+  - 精准识别 **VPN 节点地区不可用 / `403` / `429` / 鉴权失效**（立即推送）、**连续重试卡死**（默认 `>= 3` 次或 `>= 60s`）、**上游等待首字静默挂起**（默认 `>= 180s`，严格排除等待用户确认与本地工具执行）、**配额归零 / 模型禁用** 与 **Language Server 失联**（`>= 30s`）。
+  - 内置 **飞书（HMAC 加签）、钉钉（HMAC 加签）、企业微信、通用 JSON Webhook**，采用直连外发 + 失败退避重试 `2` 次，支持 `10` 分钟同指纹冷却、`5s` 短窗突发合并及 `[已恢复]` 通知；凭据本地 `0o600` 隔离存储、UI 掩码回显、导出快照彻底剥离，外发文案自动脱敏本机路径与密钥。
 - **纯流式速率与 TTFT 拆解**：
   - 将 `timeToFirstToken`（首字延迟）与 `streamingDuration`（纯流式吐字时长）严格拆分计算，同步给出端到端速率（E2E）与思考/正文 Token 分拆。
   - 自动过滤 `< 0.25s` 或 `< 20 tok` 的超短脉冲毛刺，防止畸高单步峰值污染均值与 16 轮柱状趋势图。
@@ -101,11 +105,13 @@ cd antigravity-token-lens
 
 1. 安装完成后，在 Antigravity 任意对话窗口中输入 **`/token-lens`** 并发送，点击回答中的 **`打开 Token Lens 实时面板`** 胶囊即可在右侧 Aux Pane 打开看板（也可在侧边栏 `Customizations` 页面确认插件已启用）。
 2. **自定义上下文上限与预警线**：点击面板右上角齿轮图标，可按模型或当前会话覆盖上下文上限（如 `128K`、`200K`、`512K`、`1M`、`2M`）及注意/预警百分比，偏好配置自动原子持久化。
-3. **切换中/英文**：点击面板右上角 `EN` / `中文` 一键切换，支持一键复制 Markdown 诊断摘要或导出完整 JSON 快照。
-4. **更新插件**：
+3. **配置可用性巡检与告警通知**：点击顶部巡检状态胶囊或右上角齿轮图标切换至 **「可用性巡检与通知」** 页签，添加飞书 / 钉钉 / 企业微信 / 通用 Webhook 通道并点击 **「测试此通道」** 即可验证推送，同时支持查看最近 `20` 条告警与投递回执流水。
+   - **激活说明**：每次重启 Antigravity 后打开一次 Token Lens 面板即可唤醒后台巡检，激活后即使切走面板标签页仍可持续在后台监控。
+4. **切换中/英文**：点击面板右上角 `EN` / `中文` 一键切换，支持一键复制 Markdown 诊断摘要或导出完整 JSON 快照（导出内容已自动剔除告警通道配置）。
+5. **更新插件**：
    - 若通过方式一直接克隆到插件目录，进入 `~/.gemini/config/plugins/token-lens` 执行 `git pull --ff-only` 即可；
    - 或直接重新执行方式二的一键脚本，在 `Customizations` 页面重载开关或重启面板即可加载最新版本。
-5. **卸载插件**：在 Antigravity 的 `Customizations` 页面关闭/卸载，或直接删除 `~/.gemini/config/plugins/token-lens` 目录。
+6. **卸载插件**：在 Antigravity 的 `Customizations` 页面关闭/卸载，或直接删除 `~/.gemini/config/plugins/token-lens` 目录。
 
 ---
 
@@ -116,7 +122,11 @@ cd antigravity-token-lens
 如果本机启用了全局代理工具（如 **Proxifier**、Clash TUN/系统代理等），请检查是否把 `Antigravity.exe` 对本地回环地址（`localhost` / `127.0.0.1`）的请求也转发到了代理端口。
 - **解决方法**（以 Proxifier 为例）：在规则列表**最顶部**新增一条直连规则，目标主机填写 `localhost; 127.0.0.1; 127.*; ::1`，动作选择 **`Direct`**。
 
-### 2. 如何验证安装与插件状态
+### 2. VPN 节点异常时如何保证 Webhook 告警正常送达
+
+Token Lens 外发 Webhook 默认直连请求（不主动跟随 `HTTP_PROXY` 系统代理环境变量），以便在代理节点故障时仍可把消息送达飞书 / 钉钉 / 企业微信等国内服务。若本机启用了 **TUN 全局接管** 模式且整个 VPN 链路中断，建议在代理规则中将通知平台域名（如 `open.feishu.cn`、`oapi.dingtalk.com`、`qyapi.weixin.qq.com`）设为 **`Direct`** 直连放行。
+
+### 3. 如何验证安装与插件状态
 
 在仓库或插件根目录运行内建单元测试（零外部依赖）：
 
@@ -131,6 +141,9 @@ node --test
 ```text
 antigravity-token-lens/
 ├── plugin.json                        # Antigravity 插件清单
+├── CONTEXT.md                         # 核心领域术语表
+├── docs/
+│   └── adr/                           # 架构决策记录（ADR-0001 ~ 0006）
 ├── install.ps1                        # Windows 一键安装 / 更新脚本
 ├── install.sh                         # macOS / Linux 一键安装 / 更新脚本
 ├── assets/
@@ -144,11 +157,13 @@ antigravity-token-lens/
         ├── package.json               # Node ESM 声明
         ├── main.mjs                   # SidecarApp 启动器与 HTTP API 服务
         ├── ls-client.mjs              # Language Server RPC 增量客户端与 LRU 缓存
+        ├── watchdog.mjs               # 后台可用性巡检状态机与聚合冷却引擎
+        ├── notifier.mjs               # 多平台 Webhook 签名投递与路径/密钥脱敏
         ├── quota.mjs                  # 账号配额稀疏采样存储与速率预警分析引擎
         ├── usage-ledger.mjs           # 持久化增量全量用量账本与日/周/月/年聚合
         ├── transcript.mjs             # transcript.jsonl 与 Swarm 离线兜底读取
         ├── metrics.mjs                # 指标归一化、速率/缓存/工具诊断引擎
-        ├── store.mjs                  # 轻量偏好存储与宿主主题同步
+        ├── store.mjs                  # 轻量偏好存储、通道掩码隔离与宿主主题同步
         ├── index.html                 # 原生 HTML5 面板骨架
         ├── styles.css                 # 响应式样式与主题变量自适应
         ├── app.js                     # 前端交互、SVG 趋势图与视角钻取
