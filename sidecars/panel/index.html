@@ -57,6 +57,19 @@
       </div>
     </section>
 
+    <!-- 全局账号配额脉冲条（空会话亦可直接观测，点击直达配额用量视图） -->
+    <button id="quota-strip" class="tl-quota-strip hidden" type="button">
+      <div class="tl-quota-strip-head">
+        <span class="tl-quota-strip-left">
+          <span id="quota-strip-group" class="tl-quota-strip-group">--</span>
+          <span id="quota-strip-badge" class="tl-quota-mini-badge">--</span>
+          <span id="quota-strip-tier" class="tl-quota-tier-badge hidden">--</span>
+        </span>
+        <span id="quota-strip-alert" class="tl-quota-risk-tag hidden">--</span>
+      </div>
+      <div id="quota-strip-buckets" class="tl-quota-strip-buckets"></div>
+    </button>
+
     <!-- 可展开设置面板 -->
     <section id="settings-drawer" class="tl-card tl-settings hidden">
       <div class="tl-card-head">
@@ -99,6 +112,9 @@
       <div id="empty-title" class="tl-empty-title">暂无会话数据</div>
       <div id="empty-desc" class="tl-empty-desc">在对话发送消息后，实时上下文与 Token 指标将自动显示在此处。</div>
     </section>
+
+    <!-- 空会话状态下的独立配额详情容器 -->
+    <section id="empty-quota-card" class="tl-card hidden"></section>
 
     <!-- 主内容区域 -->
     <main id="main-content" class="tl-main hidden">
@@ -206,12 +222,14 @@
           <button class="tl-tab" data-tab="turns" role="tab" type="button">逐轮明细</button>
           <button class="tl-tab" data-tab="subagents" role="tab" type="button">子代理</button>
           <button class="tl-tab" data-tab="diagnostics" role="tab" type="button">工具与诊断</button>
+          <button class="tl-tab" data-tab="quota" role="tab" type="button">配额用量</button>
         </nav>
 
         <div id="tab-breakdown" class="tl-tab-pane"></div>
         <div id="tab-turns" class="tl-tab-pane hidden"></div>
         <div id="tab-subagents" class="tl-tab-pane hidden"></div>
         <div id="tab-diagnostics" class="tl-tab-pane hidden"></div>
+        <div id="tab-quota" class="tl-tab-pane hidden"></div>
       </section>
     </main>
   </div>

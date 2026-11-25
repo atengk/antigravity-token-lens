@@ -15,6 +15,7 @@ import {
   computeMetricsFromTranscript,
   finalizeSnapshot,
 } from './metrics.mjs';
+import { QuotaHistoryStore, computeQuotaSnapshot } from './quota.mjs';
 import { PreferencesStore, readHostThemeMode, resolvePlatformPaths } from './store.mjs';
 import {
   CONVERSATION_ID_RE,
@@ -53,6 +54,7 @@ export class PanelService {
   #lsClient;
   #prefs;
   #paths;
+  #quotaHistory;
   #prefRevision = 1;
   #lastRpcError = null;
 
@@ -61,11 +63,13 @@ export class PanelService {
    * @param {LanguageServerClient} deps.lsClient LS 客户端实例
    * @param {PreferencesStore} deps.prefs 偏好存储实例
    * @param {object} deps.paths 解析后的路径配置
+   * @param {QuotaHistoryStore} [deps.quotaHistory] 配额历史采样存储
    */
-  constructor({ lsClient, prefs, paths }) {
+  constructor({ lsClient, prefs, paths, quotaHistory = null }) {
     this.#lsClient = lsClient;
     this.#prefs = prefs;
     this.#paths = paths;
+    this.#quotaHistory = quotaHistory || (paths?.dataDir ? new QuotaHistoryStore(paths.dataDir) : null);
   }
 
   /**
@@ -87,6 +91,29 @@ export class PanelService {
     const updated = await this.#prefs.update(patch);
     this.#prefRevision++;
     return updated;
+  }
+
+  /**
+   * 获取在线账号级配额与速率预警快照；仅在线 RPC 可用时返回，离线状态严格屏蔽过期历史余额。
+   *
+   * @param {{ model?: string|null, modelKey?: string|null, force?: boolean }} [params] 查询参数
+   * @return {Promise<object>}
+   */
+  async getQuota({ model = null, modelKey = null, force = false } = {}) {
+    try {
+      const quotaPayload = await this.#lsClient.getQuotaSummary({ force });
+      const historyByBucket = this.#quotaHistory
+        ? await this.#quotaHistory.recordAndLoad(quotaPayload.groups)
+        : {};
+      const currentModel = model || modelKey ? { display: model, key: modelKey } : null;
+      return computeQuotaSnapshot({ quotaPayload, historyByBucket, currentModel });
+    } catch (err) {
+      return {
+        available: false,
+        reason: 'rpc_unavailable',
+        error: err instanceof Error ? err.message : String(err || 'RPC unavailable'),
+      };
+    }
   }
 
   /**
@@ -335,8 +362,9 @@ async function startSidecar() {
   const app = new SidecarApp();
   const paths = resolvePlatformPaths();
   const prefs = new PreferencesStore(paths.dataDir);
+  const quotaHistory = new QuotaHistoryStore(paths.dataDir);
   const lsClient = new LanguageServerClient({ productName: paths.productName });
-  const service = new PanelService({ lsClient, prefs, paths });
+  const service = new PanelService({ lsClient, prefs, paths, quotaHistory });
 
   const indexHtml = readFileSync(join(__dirname, 'index.html'), 'utf8');
   app.page(
@@ -385,6 +413,16 @@ async function startSidecar() {
 
   app.api('/api/preferences', () => service.getPreferences(), 'GET');
   app.api('/api/preferences', (data) => service.updatePreferences(data), 'POST');
+  app.api(
+    '/api/quota',
+    (data) =>
+      service.getQuota({
+        model: data.model || null,
+        modelKey: data.modelKey || null,
+        force: data.force === '1' || data.force === true,
+      }),
+    'GET',
+  );
 
   return app.run();
 }

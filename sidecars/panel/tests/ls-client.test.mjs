@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   LanguageServerClient,
   buildModelCatalogFromUserStatus,
+  buildQuotaPayload,
   matchProcessAndPort,
   parseLoopbackAddress,
   projectGeneratorMeta,
@@ -335,4 +336,121 @@ test('buildModelCatalogFromUserStatus 剥离敏感信息并支持 getModelCatalo
   nowMs += 6 * 60 * 1000;
   await client.getModelCatalog();
   assert.equal(rpcCount, 2);
+});
+
+test('buildQuotaPayload 白名单剥离个人隐私并支持 getQuotaSummary 15s 节流缓存', async () => {
+  const quotaRes = {
+    response: {
+      description: 'Within each group, models share limits.',
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          description: 'Models within this group: Gemini 4 Hydrogen, Gemini 3.8 Flash',
+          buckets: [
+            {
+              bucketId: 'gemini-weekly',
+              displayName: 'Weekly Limit Remaining',
+              window: 'weekly',
+              remainingFraction: 0.8829048,
+              resetTime: '2026-12-01T16:52:59Z',
+            },
+            {
+              bucketId: 'gemini-5h',
+              displayName: 'Five Hour Limit Remaining',
+              window: '5h',
+              remainingFraction: 0.7647616,
+              resetTime: '2026-11-25T07:52:59Z',
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const userStatusRes = {
+    userStatus: {
+      name: 'Alice Secret',
+      email: 'alice@example.com',
+      profilePictureUrl: 'https://example.com/avatar.png',
+      userTier: { id: 'g1-pro-tier', name: 'Google AI Pro', description: 'Google AI Pro' },
+      planStatus: {
+        planInfo: {
+          planName: 'Pro',
+          monthlyPromptCredits: 50000,
+          monthlyFlowCredits: 150000,
+        },
+        availablePromptCredits: 500,
+        availableFlowCredits: 100,
+      },
+      cascadeModelConfigData: {
+        clientModelConfigs: [
+          {
+            label: 'Gemini 4 Hydrogen (High)',
+            modelOrAlias: { model: 'MODEL_PLACEHOLDER_M525' },
+            modelId: 'gemini-4-hydrogen-high',
+            disabled: false,
+            tagTitle: 'New',
+            tagDescription: 'For speed',
+            quotaInfo: { remainingFraction: 0.7607, resetTime: '2026-11-25T07:52:59Z' },
+          },
+          {
+            label: 'Gemini 4 Carbon',
+            modelOrAlias: { model: 'MODEL_PLACEHOLDER_M670' },
+            modelId: 'gemini-4-carbon-disabled',
+            disabled: true,
+            tagTitle: 'Paid Pro',
+            quotaInfo: {},
+          },
+        ],
+      },
+    },
+  };
+
+  const payload = buildQuotaPayload(quotaRes, userStatusRes);
+  const rawJson = JSON.stringify(payload);
+  assert.equal(rawJson.includes('alice@example.com'), false);
+  assert.equal(rawJson.includes('Alice Secret'), false);
+  assert.equal(rawJson.includes('avatar.png'), false);
+
+  assert.equal(payload.tier.id, 'g1-pro-tier');
+  assert.equal(payload.tier.name, 'Google AI Pro');
+  assert.equal(payload.credits.promptAvailable, 500);
+  assert.equal(payload.credits.promptMonthly, 50000);
+  assert.equal(payload.credits.flowAvailable, 100);
+  assert.equal(payload.credits.flowMonthly, 150000);
+  assert.equal(payload.groups.length, 1);
+  assert.equal(payload.groups[0].buckets[1].remainingFraction, 0.7647616);
+  assert.equal(payload.models[0].tagTitle, 'New');
+  assert.equal(payload.models[1].disabled, true);
+
+  let quotaCalls = 0;
+  let statusCalls = 0;
+  let nowMs = 100_000;
+  const client = new LanguageServerClient({
+    lsAddress: 'http://127.0.0.1:4350',
+    csrfToken: 'tok-1',
+    nowFn: () => nowMs,
+    requestFn: async (_ep, method) => {
+      if (method === 'RetrieveUserQuotaSummary') {
+        quotaCalls++;
+        return quotaRes;
+      }
+      if (method === 'GetUserStatus') {
+        statusCalls++;
+        return userStatusRes;
+      }
+      return {};
+    },
+  });
+
+  await client.getQuotaSummary();
+  await client.getQuotaSummary();
+  assert.equal(quotaCalls, 1);
+  assert.equal(statusCalls, 1);
+
+  nowMs += 16_000;
+  await client.getQuotaSummary();
+  assert.equal(quotaCalls, 2);
+
+  await client.getQuotaSummary({ force: true });
+  assert.equal(quotaCalls, 3);
 });

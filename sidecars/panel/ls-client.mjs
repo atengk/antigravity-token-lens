@@ -21,6 +21,7 @@ const PORT_LOG_RE = /listening on random port at (\d+) for HTTP(?:\s|$)/g;
 const DEFAULT_BUDGET_BYTES = 16 * 1024 * 1024;
 const SUMMARY_CACHE_TTL_MS = 1200;
 const MODEL_CATALOG_TTL_MS = 5 * 60 * 1000;
+const QUOTA_CACHE_TTL_MS = 15 * 1000;
 const RPC_TIMEOUT_MS = 5000;
 const MAX_TARGET_LEN = 38;
 const MAX_USER_PREVIEW_LEN = 28;
@@ -434,7 +435,7 @@ export function buildSummaryMark(summary) {
  * @param {object} userStatusRes GetUserStatus RPC 原始响应
  * @return {Array<{ rawModel: string|null, display: string|null, modelId: string|null, disabled: boolean }>}
  */
-export function buildModelCatalogFromUserStatus(userStatusRes) {
+function parseClientModelConfigs(userStatusRes, includeQuotaMeta = false) {
   const configs = userStatusRes?.userStatus?.cascadeModelConfigData?.clientModelConfigs;
   if (!Array.isArray(configs)) return [];
   const items = [];
@@ -446,14 +447,124 @@ export function buildModelCatalogFromUserStatus(userStatusRes) {
     const display = typeof cfg.label === 'string' && cfg.label.trim() ? cfg.label.trim() : null;
     const modelId = typeof cfg.modelId === 'string' && cfg.modelId.trim() ? cfg.modelId.trim() : null;
     if (!rawModel && !display && !modelId) continue;
-    items.push({
+    const entry = {
       rawModel,
       display,
       modelId,
       disabled: Boolean(cfg.disabled),
-    });
+    };
+    if (includeQuotaMeta) {
+      entry.tagTitle = typeof cfg.tagTitle === 'string' && cfg.tagTitle.trim() ? cfg.tagTitle.trim() : null;
+      entry.tagDescription = typeof cfg.tagDescription === 'string' && cfg.tagDescription.trim() ? cfg.tagDescription.trim() : null;
+      entry.quotaInfo = sanitizeQuotaInfo(cfg.quotaInfo);
+    }
+    items.push(entry);
   }
   return items;
+}
+
+/**
+ * 从 GetUserStatus 响应中提取轻量模型目录（剥离账户隐私与 MIME 列表）。
+ *
+ * @param {object} userStatusRes GetUserStatus RPC 原始响应
+ * @return {Array<{ rawModel: string|null, display: string|null, modelId: string|null, disabled: boolean }>}
+ */
+export function buildModelCatalogFromUserStatus(userStatusRes) {
+  return parseClientModelConfigs(userStatusRes, false);
+}
+
+function toFiniteNumberOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sanitizeQuotaInfo(rawQuota) {
+  if (!rawQuota || typeof rawQuota !== 'object') return null;
+  const rawFrac = toFiniteNumberOrNull(rawQuota.remainingFraction);
+  const resetTime = typeof rawQuota.resetTime === 'string' && rawQuota.resetTime.trim()
+    ? rawQuota.resetTime.trim()
+    : null;
+  if (rawFrac === null && !resetTime) return null;
+  return {
+    remainingFraction: rawFrac === null ? null : Math.min(1, Math.max(0, rawFrac)),
+    resetTime,
+  };
+}
+
+function sanitizeQuotaGroups(rawGroups) {
+  const groups = [];
+  for (const g of Array.isArray(rawGroups) ? rawGroups : []) {
+    if (!g || typeof g !== 'object') continue;
+    const buckets = [];
+    for (const b of Array.isArray(g.buckets) ? g.buckets : []) {
+      if (!b || typeof b !== 'object') continue;
+      const frac = toFiniteNumberOrNull(b.remainingFraction);
+      buckets.push({
+        bucketId: typeof b.bucketId === 'string' ? b.bucketId.trim() : '',
+        displayName: typeof b.displayName === 'string' ? b.displayName.trim() : '',
+        description: typeof b.description === 'string' ? b.description.trim() : null,
+        window: typeof b.window === 'string' ? b.window.trim().toLowerCase() : '',
+        remainingFraction: frac === null ? null : Math.min(1, Math.max(0, frac)),
+        resetTime: typeof b.resetTime === 'string' && b.resetTime.trim() ? b.resetTime.trim() : null,
+      });
+    }
+    groups.push({
+      displayName: typeof g.displayName === 'string' ? g.displayName.trim() : '',
+      description: typeof g.description === 'string' ? g.description.trim() : '',
+      buckets,
+    });
+  }
+  return groups;
+}
+
+/**
+ * 以严格白名单方式抽取配额汇总、套餐积分与分模型状态，彻底剥离姓名、邮箱与头像等个人隐私字段。
+ *
+ * @param {object} quotaSummaryRes RetrieveUserQuotaSummary 原始响应
+ * @param {object} [userStatusRes=null] GetUserStatus 原始响应
+ * @return {object}
+ */
+export function buildQuotaPayload(quotaSummaryRes, userStatusRes = null) {
+  const root = quotaSummaryRes?.response && typeof quotaSummaryRes.response === 'object'
+    ? quotaSummaryRes.response
+    : quotaSummaryRes && typeof quotaSummaryRes === 'object'
+      ? quotaSummaryRes
+      : {};
+
+  const groups = sanitizeQuotaGroups(root.groups);
+  const us = userStatusRes?.userStatus && typeof userStatusRes.userStatus === 'object'
+    ? userStatusRes.userStatus
+    : {};
+  const ut = us.userTier && typeof us.userTier === 'object' ? us.userTier : null;
+  const tier = ut
+    ? {
+        id: typeof ut.id === 'string' ? ut.id.trim() : null,
+        name: typeof ut.name === 'string' ? ut.name.trim() : null,
+        description: typeof ut.description === 'string' ? ut.description.trim() : null,
+      }
+    : null;
+
+  const ps = us.planStatus && typeof us.planStatus === 'object' ? us.planStatus : null;
+  const pi = ps?.planInfo && typeof ps.planInfo === 'object' ? ps.planInfo : {};
+  const credits = ps
+    ? {
+        planName: typeof pi.planName === 'string' ? pi.planName.trim() : null,
+        teamsTier: typeof pi.teamsTier === 'string' ? pi.teamsTier.trim() : null,
+        promptAvailable: toFiniteNumberOrNull(ps.availablePromptCredits),
+        promptMonthly: toFiniteNumberOrNull(pi.monthlyPromptCredits),
+        flowAvailable: toFiniteNumberOrNull(ps.availableFlowCredits),
+        flowMonthly: toFiniteNumberOrNull(pi.monthlyFlowCredits),
+      }
+    : null;
+
+  return {
+    description: typeof root.description === 'string' && root.description.trim() ? root.description.trim() : null,
+    groups,
+    tier,
+    credits,
+    models: parseClientModelConfigs(userStatusRes, true),
+  };
 }
 
 /**
@@ -623,6 +734,9 @@ export class LanguageServerClient {
   #modelCatalogCache = null;
   #modelCatalogAt = -Infinity;
   #modelCatalogPending = null;
+  #quotaCache = null;
+  #quotaAt = -Infinity;
+  #quotaPending = null;
   #projCache = new Map();
   #inFlight = new Map();
   #totalCachedBytes = 0;
@@ -855,6 +969,40 @@ export class LanguageServerClient {
       });
 
     return this.#modelCatalogPending;
+  }
+
+  /**
+   * 获取账号级配额汇总与模型状态（带 15s 节流缓存）。
+   *
+   * @param {{ force?: boolean }} [options] 读取选项
+   * @return {Promise<object>}
+   */
+  async getQuotaSummary({ force = false } = {}) {
+    const now = this.#nowFn();
+    if (!force && this.#quotaCache && now - this.#quotaAt < QUOTA_CACHE_TTL_MS) {
+      return this.#quotaCache;
+    }
+    if (this.#quotaPending) return this.#quotaPending;
+
+    this.#quotaPending = Promise.all([
+      this.call('RetrieveUserQuotaSummary', {}),
+      this.call('GetUserStatus', {}).catch(() => null),
+    ])
+      .then(([quotaRes, userStatusRes]) => {
+        if (userStatusRes) {
+          this.#modelCatalogCache = buildModelCatalogFromUserStatus(userStatusRes);
+          this.#modelCatalogAt = this.#nowFn();
+        }
+        const payload = buildQuotaPayload(quotaRes, userStatusRes);
+        this.#quotaCache = payload;
+        this.#quotaAt = this.#nowFn();
+        return payload;
+      })
+      .finally(() => {
+        this.#quotaPending = null;
+      });
+
+    return this.#quotaPending;
   }
 
   /**

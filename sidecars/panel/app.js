@@ -102,6 +102,30 @@
       diagToolMeta: '次调用',
       diagErrCount: '失败',
       exportJson: '复制完整 JSON 快照',
+      tabQuota: '配额用量',
+      quotaOffline: '当前处于离线或未连接语言服务状态，仅在线 RPC 模式可查看实时账号配额（已按规则屏蔽历史过期余额）。',
+      quotaCurrentGroup: '当前配额组',
+      quotaUrgentGroup: '最紧迫组',
+      quotaDisabledTag: '不可用',
+      quotaWin5h: '5小时限额',
+      quotaWinWeekly: '每周限额',
+      quotaIdleFull: '满额待激活（首次调用开启计时）',
+      quotaResetsIn: '后重置',
+      quotaDepleteWarn: '预计重置前耗尽',
+      quotaTimeVsUsed: '周期时间',
+      quotaUsedLabel: '已耗',
+      quotaPacingFast: '消耗偏快',
+      quotaPacingSteady: '节奏平稳',
+      quotaPacingRelaxed: '余量充裕',
+      quotaBurnRateLabel: '实测速率',
+      quotaEtaLabel: '预计耗尽',
+      quotaSafeReset: '可安全撑到重置',
+      quotaCollecting: '观察累计中（待跨度达标后输出速率预测）',
+      quotaObservedDrop: '观察期已降',
+      quotaCreditsPrompt: 'Prompt 积分',
+      quotaCreditsFlow: 'Flow 积分',
+      quotaScopeNote: '注：配额消耗为账号级全局实测值（包含并发对话窗口与子代理调用），不同模型按成本比例扣减。',
+      quotaOtherModels: '其他套餐限制模型',
     },
     en: {
       backParent: '← Back to Parent',
@@ -196,6 +220,30 @@
       diagToolMeta: 'calls',
       diagErrCount: 'err',
       exportJson: 'Copy JSON Snapshot',
+      tabQuota: 'Quota',
+      quotaOffline: 'Live account quota is only available in Live RPC mode (stale offline balances are hidden by design).',
+      quotaCurrentGroup: 'Active Group',
+      quotaUrgentGroup: 'Lowest Group',
+      quotaDisabledTag: 'Disabled',
+      quotaWin5h: '5h Limit',
+      quotaWinWeekly: 'Weekly Limit',
+      quotaIdleFull: 'Full · starts on first request',
+      quotaResetsIn: 'to reset',
+      quotaDepleteWarn: 'May deplete before reset',
+      quotaTimeVsUsed: 'Elapsed',
+      quotaUsedLabel: 'Used',
+      quotaPacingFast: 'Burning fast',
+      quotaPacingSteady: 'On pace',
+      quotaPacingRelaxed: 'Relaxed',
+      quotaBurnRateLabel: 'Burn Rate',
+      quotaEtaLabel: 'Depletes in',
+      quotaSafeReset: 'Lasts past reset',
+      quotaCollecting: 'Collecting samples (awaiting stable window)',
+      quotaObservedDrop: 'Observed drop',
+      quotaCreditsPrompt: 'Prompt Credits',
+      quotaCreditsFlow: 'Flow Credits',
+      quotaScopeNote: 'Account-wide measured quota (includes concurrent chats & subagents); consumed proportionally to token cost.',
+      quotaOtherModels: 'Other tier-gated models',
     },
   };
 
@@ -209,9 +257,17 @@
     focusedConversationId: resolveInitialConversationId(),
     etag: null,
     snapshot: null,
+    quota: null,
     pollTimer: null,
+    quotaTimer: null,
     clockTimer: null,
     isFetching: false,
+    isQuotaFetching: false,
+    pendingQuotaForce: false,
+    wasRunning: false,
+    emptyQuotaOpen: false,
+    lastAutoResetRefreshAt: 0,
+    lastClockTickSec: 0,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -323,7 +379,9 @@
       else if (tab.dataset.tab === 'turns') tab.textContent = t('tabTurns');
       else if (tab.dataset.tab === 'subagents') tab.textContent = t('tabSubagents');
       else if (tab.dataset.tab === 'diagnostics') tab.textContent = t('tabDiagnostics');
+      else if (tab.dataset.tab === 'quota') tab.textContent = t('tabQuota');
     }
+    if (state.quota) renderQuotaUi();
   }
 
   async function copyText(text, btnEl) {
@@ -385,8 +443,16 @@
       }
 
       if (data.etag) state.etag = data.etag;
+      const nowRunning = Boolean(data.conversation?.isRunning);
+      const finishedTurn = state.wasRunning && !nowRunning;
+      state.wasRunning = nowRunning;
       state.snapshot = data;
       renderSnapshot(data);
+
+      // 一轮生成刚结束、强制刷新或切换至离线日志模式时，同步刷新配额状态
+      if ((data.source === 'transcript' && state.quota?.available) || finishedTurn || force) {
+        void refreshQuota(true);
+      }
     } catch {
       // 网络波动等待下次轮询恢复
     } finally {
@@ -401,6 +467,50 @@
     const isRunning = Boolean(state.snapshot?.conversation?.isRunning);
     const delay = hidden ? 6000 : isRunning ? 1000 : 2000;
     state.pollTimer = setTimeout(() => void refreshSnapshot(false), delay);
+  }
+
+  async function refreshQuota(force = false) {
+    if (state.isQuotaFetching) {
+      if (force) state.pendingQuotaForce = true;
+      return;
+    }
+    state.isQuotaFetching = true;
+    try {
+      const params = new URLSearchParams();
+      const conv = state.snapshot?.conversation;
+      if (conv?.model) params.set('model', conv.model);
+      if (conv?.modelKey) params.set('modelKey', conv.modelKey);
+      if (force) params.set('force', '1');
+
+      const res = await apiFetch(`/api/quota?${params.toString()}`);
+      if (!res.ok) {
+        console.warn(`[token-lens] Quota endpoint returned HTTP ${res.status}`);
+        state.quota = { available: false, reason: 'http_error' };
+        renderQuotaUi();
+        return;
+      }
+      state.quota = await res.json();
+      renderQuotaUi();
+    } catch (err) {
+      console.warn('[token-lens] Quota request failed:', err);
+      state.quota = { available: false, reason: 'network_error' };
+      renderQuotaUi();
+    } finally {
+      state.isQuotaFetching = false;
+      if (state.pendingQuotaForce) {
+        state.pendingQuotaForce = false;
+        void refreshQuota(true);
+      } else {
+        scheduleNextQuotaPoll();
+      }
+    }
+  }
+
+  function scheduleNextQuotaPoll() {
+    clearTimeout(state.quotaTimer);
+    const hidden = document.visibilityState === 'hidden';
+    const delay = hidden ? 60_000 : 20_000;
+    state.quotaTimer = setTimeout(() => void refreshQuota(false), delay);
   }
 
   function formatRunningPhaseLabel(ar) {
@@ -465,10 +575,12 @@
       $('source-badge').title = snap.rpcError || '';
       renderConversationTitle(snap);
       updateRunningTimer();
+      renderQuotaUi();
       return;
     }
 
     $('empty-state').classList.add('hidden');
+    $('empty-quota-card').classList.add('hidden');
     $('main-content').classList.remove('hidden');
 
     const c = snap.conversation || {};
@@ -574,6 +686,436 @@
     renderTurnsTab(snap.turns || []);
     renderSubagentsTab(snap.subagents || []);
     renderDiagnosticsTab(snap);
+    renderQuotaUi();
+  }
+
+  function formatCountdownShort(sec) {
+    if (typeof sec !== 'number' || !Number.isFinite(sec)) return '—';
+    const total = Math.max(0, Math.round(sec));
+    const d = Math.floor(total / 86400);
+    const h = Math.floor((total % 86400) / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m`;
+    return `${total}s`;
+  }
+
+  function computeLiveResetSec(bucket) {
+    if (bucket.isIdleFull || !bucket.resetTime) return null;
+    const targetMs = Date.parse(bucket.resetTime);
+    if (!Number.isFinite(targetMs)) return bucket.resetsInSec;
+    return Math.max(0, (targetMs - Date.now()) / 1000);
+  }
+
+  function formatResetLabel(bucket) {
+    if (bucket.isIdleFull) return t('quotaIdleFull');
+    const sec = computeLiveResetSec(bucket);
+    if (sec === null) return '—';
+    return `${formatCountdownShort(sec)} ${t('quotaResetsIn')}`;
+  }
+
+  function formatWindowTitle(bucket) {
+    if (bucket.window === '5h') return t('quotaWin5h');
+    if (bucket.window === 'weekly') return t('quotaWinWeekly');
+    return bucket.displayName || bucket.bucketId;
+  }
+
+  function renderQuotaSparkline(container, series, alertLevel) {
+    container.replaceChildren();
+    if (!Array.isArray(series) || series.length < 2) return;
+    const width = 160;
+    const height = 22;
+    const pad = 2;
+    const minTs = series[0].ts;
+    const maxTs = Math.max(series.at(-1).ts, minTs + 1);
+    const pts = series.map((pt) => {
+      const x = pad + ((pt.ts - minTs) / (maxTs - minTs)) * (width - pad * 2);
+      const pct = Math.min(100, Math.max(0, pt.remainingPct));
+      const y = pad + (1 - pct / 100) * (height - pad * 2);
+      return { x, y, pt };
+    });
+
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+
+    const stroke =
+      alertLevel === 'critical'
+        ? 'var(--tl-error)'
+        : alertLevel === 'warn'
+          ? 'var(--tl-warn)'
+          : 'var(--tl-success)';
+
+    const poly = document.createElementNS(svgNS, 'polyline');
+    poly.setAttribute('fill', 'none');
+    poly.setAttribute('stroke', stroke);
+    poly.setAttribute('stroke-width', '1.6');
+    poly.setAttribute('stroke-linejoin', 'round');
+    poly.setAttribute('stroke-linecap', 'round');
+    poly.setAttribute('points', pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '));
+    svg.appendChild(poly);
+
+    const last = pts.at(-1);
+    const dot = document.createElementNS(svgNS, 'circle');
+    dot.setAttribute('cx', last.x.toFixed(1));
+    dot.setAttribute('cy', last.y.toFixed(1));
+    dot.setAttribute('r', '2.3');
+    dot.setAttribute('fill', stroke);
+    svg.appendChild(dot);
+
+    container.appendChild(svg);
+  }
+
+  function renderQuotaStrip(quota, isOfflineTranscript) {
+    const strip = $('quota-strip');
+    if (!quota || !quota.available || isOfflineTranscript || !Array.isArray(quota.groups) || !quota.groups.length) {
+      strip.classList.add('hidden');
+      return;
+    }
+
+    const activeGroup = quota.groups.find((g) => g.isActive) || quota.groups[0];
+    strip.classList.remove('hidden');
+    strip.classList.toggle('is-warn', activeGroup.alertLevel === 'warn');
+    strip.classList.toggle('is-critical', activeGroup.alertLevel === 'critical');
+
+    $('quota-strip-group').textContent = activeGroup.displayName;
+    $('quota-strip-badge').textContent = quota.activeMatchKind === 'model' ? t('quotaCurrentGroup') : t('quotaUrgentGroup');
+
+    const tierEl = $('quota-strip-tier');
+    const tierName = quota.tier?.name || quota.credits?.planName;
+    if (tierName) {
+      tierEl.classList.remove('hidden');
+      tierEl.textContent = tierName;
+    } else {
+      tierEl.classList.add('hidden');
+    }
+
+    const hasDepleteRisk = activeGroup.buckets.some((b) => b.willDepleteBeforeReset);
+    const riskEl = $('quota-strip-alert');
+    if (hasDepleteRisk || activeGroup.alertLevel === 'critical') {
+      riskEl.classList.remove('hidden');
+      riskEl.classList.toggle('is-critical', activeGroup.alertLevel === 'critical');
+      riskEl.textContent = `⚠ ${t('quotaDepleteWarn')}`;
+    } else {
+      riskEl.classList.add('hidden');
+    }
+
+    const bucketsWrap = $('quota-strip-buckets');
+    bucketsWrap.replaceChildren();
+    for (const b of activeGroup.buckets) {
+      const pill = document.createElement('div');
+      pill.className = 'tl-qstrip-pill';
+
+      const left = document.createElement('span');
+      left.className = 'tl-qstrip-win';
+      left.textContent = b.window === 'weekly' ? 'Weekly' : b.window === '5h' ? '5h' : b.displayName;
+
+      const right = document.createElement('span');
+      const val = document.createElement('span');
+      val.className = `tl-qstrip-val is-${b.alertLevel}`;
+      val.textContent = b.remainingPct !== null ? `${b.remainingPct.toFixed(1)}%` : '—';
+
+      const reset = document.createElement('span');
+      reset.className = 'tl-qstrip-reset';
+      reset.dataset.quotaBucketId = b.bucketId;
+      reset.textContent = b.isIdleFull
+        ? ` · ${state.lang === 'zh-CN' ? '待激活' : 'Idle'}`
+        : ` · ${formatCountdownShort(computeLiveResetSec(b))}`;
+
+      right.append(val, reset);
+      pill.append(left, right);
+      bucketsWrap.appendChild(pill);
+    }
+  }
+
+  function renderQuotaAccountBar(quota) {
+    if (!quota.tier?.name && !quota.credits) return null;
+    const bar = document.createElement('div');
+    bar.className = 'tl-quota-account-bar';
+    const tierBadge = document.createElement('span');
+    tierBadge.className = 'tl-quota-tier-badge';
+    tierBadge.textContent = quota.tier?.name || quota.credits?.planName || 'Antigravity';
+
+    const credits = document.createElement('div');
+    credits.className = 'tl-quota-credits';
+    if (quota.credits?.promptAvailable !== null && quota.credits?.promptAvailable !== undefined) {
+      const p = document.createElement('span');
+      const cap = quota.credits.promptMonthly ? `/${fmtCompact(quota.credits.promptMonthly)}` : '';
+      p.textContent = `${t('quotaCreditsPrompt')}: ${fmtInt(quota.credits.promptAvailable)}${cap}`;
+      credits.appendChild(p);
+    }
+    if (quota.credits?.flowAvailable !== null && quota.credits?.flowAvailable !== undefined) {
+      const f = document.createElement('span');
+      const cap = quota.credits.flowMonthly ? `/${fmtCompact(quota.credits.flowMonthly)}` : '';
+      f.textContent = `${t('quotaCreditsFlow')}: ${fmtInt(quota.credits.flowAvailable)}${cap}`;
+      credits.appendChild(f);
+    }
+    bar.append(tierBadge, credits);
+    return bar;
+  }
+
+  function renderQuotaBucketRow(b) {
+    const row = document.createElement('div');
+    row.className = 'tl-quota-bucket-row';
+
+    const ringWrap = document.createElement('div');
+    ringWrap.className = 'tl-quota-ring-wrap';
+    const r = 20;
+    const c = 2 * Math.PI * r;
+    const pct = b.remainingPct !== null ? Math.min(100, Math.max(0, b.remainingPct)) : 0;
+    const offset = c * (1 - pct / 100);
+    ringWrap.innerHTML = `<svg viewBox="0 0 48 48" aria-hidden="true"><circle class="tl-quota-ring-track" cx="24" cy="24" r="${r}"/><circle class="tl-quota-ring-fill is-${escHtml(b.alertLevel)}" cx="24" cy="24" r="${r}" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${offset.toFixed(2)}"/></svg><span class="tl-quota-ring-text">${b.remainingPct !== null ? `${b.remainingPct.toFixed(0)}%` : '—'}</span>`;
+
+    const body = document.createElement('div');
+    body.className = 'tl-quota-bucket-body';
+
+    const top = document.createElement('div');
+    top.className = 'tl-quota-bucket-top';
+    const bName = document.createElement('span');
+    bName.className = 'tl-quota-bucket-name';
+    bName.textContent = `${formatWindowTitle(b)} · ${b.remainingPct !== null ? `${b.remainingPct.toFixed(1)}%` : '—'}`;
+    const bReset = document.createElement('span');
+    bReset.className = 'tl-quota-bucket-meta';
+    bReset.dataset.quotaBucketDetailId = b.bucketId;
+    bReset.textContent = formatResetLabel(b);
+    top.append(bName, bReset);
+    body.appendChild(top);
+
+    if (!b.isIdleFull && b.timeElapsedPct !== null && b.usedPct !== null) {
+      const paceWrap = document.createElement('div');
+      paceWrap.className = 'tl-pacing-wrap';
+      const paceLabel = document.createElement('div');
+      paceLabel.className = 'tl-quota-bucket-meta';
+      const paceKey = b.pacingStatus === 'fast' ? 'quotaPacingFast' : b.pacingStatus === 'relaxed' ? 'quotaPacingRelaxed' : 'quotaPacingSteady';
+      paceLabel.textContent = `${t('quotaTimeVsUsed')} ${b.timeElapsedPct.toFixed(0)}% vs ${t('quotaUsedLabel')} ${b.usedPct.toFixed(1)}% · ${t(paceKey)}`;
+
+      const bars = document.createElement('div');
+      bars.className = 'tl-pacing-bars';
+      bars.innerHTML = `<div class="tl-pacing-track"><div class="tl-pacing-fill-time" style="width:${Math.min(100, b.timeElapsedPct).toFixed(1)}%"></div></div><div class="tl-pacing-track"><div class="tl-pacing-fill-used is-${escHtml(b.alertLevel)}" style="width:${Math.min(100, b.usedPct).toFixed(1)}%"></div></div>`;
+      paceWrap.append(paceLabel, bars);
+      body.appendChild(paceWrap);
+    }
+
+    const burnEl = document.createElement('div');
+    burnEl.className = `tl-quota-burn-line${b.burnStatus === 'danger' || b.burnStatus === 'depleted' ? ' is-danger' : ''}`;
+    if (b.burnStatus === 'danger') {
+      burnEl.textContent = `⚠ ${t('quotaBurnRateLabel')} ${b.burnRatePctPerHour.toFixed(1)}%/h · ${t('quotaEtaLabel')} ${formatCountdownShort(b.etaDepletionSec)} (${t('quotaDepleteWarn')})`;
+    } else if (b.burnStatus === 'safe') {
+      burnEl.textContent = `⚡ ${t('quotaBurnRateLabel')} ${b.burnRatePctPerHour.toFixed(1)}%/h · ${t('quotaSafeReset')}`;
+    } else if (b.burnStatus === 'collecting') {
+      const dropNote = b.observedDropPct > 0 ? ` (${t('quotaObservedDrop')} -${b.observedDropPct.toFixed(2)}%)` : '';
+      burnEl.textContent = `${t('quotaCollecting')}${dropNote}`;
+    } else if (b.burnStatus === 'depleted') {
+      burnEl.textContent = `⚠ ${t('quotaDepleteWarn')}`;
+    }
+    if (burnEl.textContent) body.appendChild(burnEl);
+
+    if (!b.isIdleFull && Array.isArray(b.series) && b.series.length >= 2) {
+      const pcts = b.series.map((pt) => pt.remainingPct);
+      const hasChange = Math.max(...pcts) - Math.min(...pcts) >= 0.05;
+      if (hasChange) {
+        const spark = document.createElement('div');
+        spark.className = 'tl-quota-sparkline';
+        renderQuotaSparkline(spark, b.series, b.alertLevel);
+        body.appendChild(spark);
+      }
+    }
+
+    row.append(ringWrap, body);
+    return row;
+  }
+
+  function groupModelsByFamily(models) {
+    const byBase = new Map();
+    for (const m of models) {
+      const display = m.display || m.modelId || m.rawModel || 'Unknown';
+      const match = display.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+      const base = match ? match[1].trim() : display;
+      const tier = match ? match[2].trim() : null;
+      const key = `${base}|${Boolean(m.disabled)}|${m.tagTitle || ''}`;
+      let entry = byBase.get(key);
+      if (!entry) {
+        entry = {
+          base,
+          tiers: [],
+          displays: [],
+          disabled: Boolean(m.disabled),
+          tagTitle: m.tagTitle || null,
+          tagDescription: m.tagDescription || null,
+        };
+        byBase.set(key, entry);
+      }
+      if (tier && !entry.tiers.includes(tier)) entry.tiers.push(tier);
+      entry.displays.push(display);
+      if (!entry.tagDescription && m.tagDescription) entry.tagDescription = m.tagDescription;
+    }
+    return [...byBase.values()];
+  }
+
+  function buildQuotaModelChip(groupEntry, currentModelName) {
+    const chip = document.createElement('span');
+    const isCur = Boolean(
+      currentModelName &&
+      groupEntry.displays.some((d) => d.toLowerCase() === currentModelName.toLowerCase()),
+    );
+    const label = groupEntry.tiers.length > 1
+      ? `${groupEntry.base} (${groupEntry.tiers.join(' / ')})`
+      : groupEntry.displays[0];
+    chip.className = `tl-quota-model-chip${groupEntry.disabled ? ' is-disabled' : ''}${isCur ? ' is-current' : ''}`;
+    chip.textContent = groupEntry.disabled ? `🔒 ${label}` : label;
+
+    const tagText = groupEntry.tagTitle || (groupEntry.disabled ? t('quotaDisabledTag') : null);
+    if (tagText) {
+      const tag = document.createElement('span');
+      tag.className = 'tl-quota-tag';
+      tag.textContent = tagText;
+      chip.appendChild(tag);
+    }
+    if (groupEntry.tagDescription) {
+      chip.title = groupEntry.tagDescription;
+    }
+    return chip;
+  }
+
+  function renderQuotaModelsSection(models, currentModelName, { titleText = null, includeDisabledNotices = false } = {}) {
+    if (!Array.isArray(models) || models.length === 0) return null;
+    const box = document.createElement('div');
+    box.className = 'tl-quota-models';
+    if (titleText) {
+      const lbl = document.createElement('div');
+      lbl.className = 'tl-quota-bucket-meta';
+      lbl.textContent = titleText;
+      box.appendChild(lbl);
+    }
+
+    const chips = document.createElement('div');
+    chips.className = 'tl-quota-model-chips';
+    const notices = new Set();
+
+    for (const entry of groupModelsByFamily(models)) {
+      chips.appendChild(buildQuotaModelChip(entry, currentModelName));
+      if (entry.tagDescription && (/notice|leaving/i.test(entry.tagTitle || '') || (includeDisabledNotices && entry.disabled))) {
+        notices.add(entry.tagDescription);
+      }
+    }
+    box.appendChild(chips);
+
+    for (const msg of notices) {
+      const n = document.createElement('div');
+      n.className = 'tl-quota-notice';
+      n.textContent = `ℹ ${msg}`;
+      box.appendChild(n);
+    }
+    return box;
+  }
+
+  function renderQuotaTab(container, quota, isOfflineTranscript) {
+    container.replaceChildren();
+    if (isOfflineTranscript || !quota || !quota.available) {
+      const msg = document.createElement('div');
+      msg.className = 'tl-muted';
+      msg.textContent = t('quotaOffline');
+      container.appendChild(msg);
+      return;
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'tl-quota-pane';
+
+    const accountBar = renderQuotaAccountBar(quota);
+    if (accountBar) wrap.appendChild(accountBar);
+
+    const grid = document.createElement('div');
+    grid.className = 'tl-quota-groups';
+    const currentModelName = state.snapshot?.conversation?.model || '';
+
+    for (const group of quota.groups || []) {
+      const card = document.createElement('article');
+      card.className = `tl-quota-group-card${group.isActive ? ' is-active-group' : ''}`;
+
+      const head = document.createElement('div');
+      head.className = 'tl-quota-group-head';
+      const title = document.createElement('span');
+      title.className = 'tl-quota-group-title';
+      title.textContent = group.displayName;
+      head.appendChild(title);
+
+      if (group.isActive) {
+        const tag = document.createElement('span');
+        tag.className = 'tl-quota-tier-badge';
+        tag.textContent = quota.activeMatchKind === 'model' ? t('quotaCurrentGroup') : t('quotaUrgentGroup');
+        head.appendChild(tag);
+      }
+      card.appendChild(head);
+
+      for (const b of group.buckets || []) {
+        card.appendChild(renderQuotaBucketRow(b));
+      }
+
+      const modelsBox = renderQuotaModelsSection(group.models, currentModelName);
+      if (modelsBox) card.appendChild(modelsBox);
+
+      grid.appendChild(card);
+    }
+    wrap.appendChild(grid);
+
+    const otherBox = renderQuotaModelsSection(quota.unmatchedModels, '', {
+      titleText: t('quotaOtherModels'),
+      includeDisabledNotices: true,
+    });
+    if (otherBox) wrap.appendChild(otherBox);
+
+    const footnote = document.createElement('div');
+    footnote.className = 'tl-quota-footnote';
+    footnote.textContent = t('quotaScopeNote');
+    wrap.appendChild(footnote);
+
+    container.appendChild(wrap);
+  }
+
+  function renderQuotaUi() {
+    const isOfflineTranscript = Boolean(state.snapshot && !state.snapshot.empty && !state.snapshot.notFound && state.snapshot.source === 'transcript');
+    renderQuotaStrip(state.quota, isOfflineTranscript);
+    renderQuotaTab($('tab-quota'), state.quota, isOfflineTranscript);
+
+    const isEmptyView = !$('empty-state').classList.contains('hidden');
+    const standalone = $('empty-quota-card');
+    if (isEmptyView && state.emptyQuotaOpen && state.quota?.available) {
+      standalone.classList.remove('hidden');
+      renderQuotaTab(standalone, state.quota, false);
+    } else {
+      standalone.classList.add('hidden');
+    }
+  }
+
+  function updateQuotaCountdowns() {
+    const quota = state.quota;
+    if (!quota || !quota.available || !Array.isArray(quota.groups)) return;
+    let shouldAutoRefresh = false;
+    const now = Date.now();
+
+    for (const g of quota.groups) {
+      for (const b of g.buckets || []) {
+        if (b.isIdleFull || !b.resetTime) continue;
+        const resetMs = Date.parse(b.resetTime);
+        if (!Number.isFinite(resetMs)) continue;
+        const sec = Math.max(0, (resetMs - now) / 1000);
+        if (sec <= 0 && now - state.lastAutoResetRefreshAt > 10_000) {
+          shouldAutoRefresh = true;
+        }
+        const stripEl = document.querySelector(`[data-quota-bucket-id="${CSS.escape(b.bucketId)}"]`);
+        if (stripEl) stripEl.textContent = ` · ${formatCountdownShort(sec)}`;
+        const detailEl = document.querySelector(`[data-quota-bucket-detail-id="${CSS.escape(b.bucketId)}"]`);
+        if (detailEl) detailEl.textContent = `${formatCountdownShort(sec)} ${t('quotaResetsIn')}`;
+      }
+    }
+
+    if (shouldAutoRefresh) {
+      state.lastAutoResetRefreshAt = now;
+      void refreshQuota(true);
+    }
   }
 
   function renderMiniBreakdown(breakdown) {
@@ -1195,6 +1737,20 @@
     $('btn-lang').addEventListener('click', () => void toggleLanguage());
     $('btn-refresh').addEventListener('click', () => {
       void refreshSnapshot(true);
+      void refreshQuota(true);
+    });
+    $('quota-strip').addEventListener('click', () => {
+      const isEmptyView = !$('empty-state').classList.contains('hidden');
+      if (isEmptyView) {
+        state.emptyQuotaOpen = !state.emptyQuotaOpen;
+        renderQuotaUi();
+        return;
+      }
+      const quotaTab = document.querySelector('.tl-tab[data-tab="quota"]');
+      if (quotaTab) {
+        quotaTab.click();
+        quotaTab.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     });
     $('btn-copy-summary').addEventListener('click', () => {
       void copyText(state.snapshot?.markdownSummary || '', $('btn-copy-summary'));
@@ -1244,10 +1800,14 @@
         $('tab-turns').classList.toggle('hidden', state.activeTab !== 'turns');
         $('tab-subagents').classList.toggle('hidden', state.activeTab !== 'subagents');
         $('tab-diagnostics').classList.toggle('hidden', state.activeTab !== 'diagnostics');
+        $('tab-quota').classList.toggle('hidden', state.activeTab !== 'quota');
       });
     }
 
-    document.addEventListener('visibilitychange', () => scheduleNextPoll());
+    document.addEventListener('visibilitychange', () => {
+      scheduleNextPoll();
+      scheduleNextQuotaPoll();
+    });
     window.addEventListener('message', (event) => {
       if (event.data?.type === 'theme-change') {
         applyTheme(state.snapshot?.hostTheme?.mode);
@@ -1260,8 +1820,14 @@
     applyTheme('system');
     bindEvents();
     void refreshSnapshot(true);
+    void refreshQuota(true);
     state.clockTimer = setInterval(() => {
       if (state.snapshot?.conversation?.isRunning) updateRunningTimer();
+      const sec = Math.floor(Date.now() / 1000);
+      if (sec !== state.lastClockTickSec) {
+        state.lastClockTickSec = sec;
+        updateQuotaCountdowns();
+      }
     }, 200);
   }
 

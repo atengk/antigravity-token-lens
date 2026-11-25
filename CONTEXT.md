@@ -1,8 +1,10 @@
 # Antigravity Token Lens
 
-Antigravity Token Lens 是挂载于 Antigravity 辅助面板的实时上下文水位、吞吐率与缓存诊断域。本词汇表定义该上下文中的核心领域术语，统一对话、设计文档与界面表达中的语义边界。
+Antigravity Token Lens 是挂载于 Antigravity 辅助面板的实时上下文水位、吞吐率、缓存诊断与账号配额观测域。本词汇表定义该上下文中的核心领域术语，统一对话、设计文档与界面表达中的语义边界。
 
 ## Language
+
+### 上下文与吞吐 (Context & Throughput)
 
 **Host Effective Limit（宿主有效上下文上限）**:
 Antigravity 宿主运行时实际为当前会话模型分配并执行检查点与压缩截断的上下文窗口上限（以 Token 计，例如当前 Gemini 4 系列为 `512,000`）。
@@ -43,3 +45,33 @@ _Avoid_: 实测占用、真实上下文
 **Estimation Delta（预估偏差 `Δ`）**:
 `Measured Prompt Input` 与 `Host Pre-flight Estimate` 之间的差值，用于向用户透明解释结构拆解明细总和与实测主水位之间的天然差异。
 _Avoid_: 误差补正、缩放差额
+
+### 账户配额与速率限制 (Account Quota & Limits)
+
+**Quota Group（配额组）**:
+共享同一套用量限额池的模型集合（例如 `Gemini Models` 或 `Claude and GPT models`），组内任意模型的调用均扣减该组共用的配额桶。
+_Avoid_: 模型分类、单模型限额
+
+**Quota Bucket（配额桶）**:
+配额组下按固定周期窗口统计剩余额度与重置时刻的独立计数单元（如 `5h` 短期平滑窗口与 `weekly` 周度个人配额窗口）。
+_Avoid_: 额度进度条、用量卡片
+
+**Remaining Fraction（剩余配额比例）**:
+配额桶当前剩余可用额度占该周期总限额的小数比例（范围 `0` 至 `1`），用于高精度微消耗观测与速率推算。
+_Avoid_: 剩余整数百分比、已用比例
+
+**Reset Time（配额重置时刻）**:
+当前配额桶周期结束并恢复满额的绝对 UTC 时间点，用于计算重置倒计时及判定周期内是否会提前耗尽。
+_Avoid_: 冷却时间、剩余时长
+
+**Quota Burn Rate（配额消耗速率）**:
+单位时间内配额桶 `Remaining Fraction` 的净下降速度，基于连续在线采样窗口测算，用于评估账户级配额续航。
+_Avoid_: 生成速率、tok/s
+
+**Quota Depletion ETA（预计耗尽时刻）**:
+按当前 `Quota Burn Rate` 推算配额桶归零的时间点；当其早于 `Reset Time` 时触发周期内撞墙预警。
+_Avoid_: 预计剩余轮数
+
+**Plan Credits（套餐积分）**:
+用户订阅等级下按账户维度统计的可用 Prompt 与 Flow 积分余额，独立于模型组的周期性配额桶。
+_Avoid_: 配额桶、Token 余额
