@@ -16,8 +16,9 @@ const DEFAULT_AGGREGATION_WINDOW_MS = 5_000;
 const MAX_RECENT_DELIVERIES = 20;
 const MAX_TRACKED_CONVERSATIONS = 200;
 
-const TERMINAL_FAILURE_RE = /\b(FAILED|ERROR)\b/i;
-const TERMINAL_SUCCESS_RE = /\b(DONE|COMPLETED|IDLE|CANCELLED|CANCELED|STOPPED)\b/i;
+const TERMINAL_FAILURE_RE = /(?:^|_|\b)(FAILED|ERROR)(?:$|_|\b)/i;
+const TERMINAL_SUCCESS_RE = /(?:^|_|\b)(DONE|COMPLETED|IDLE|CANCELLED|CANCELED|STOPPED)(?:$|_|\b)/i;
+const USER_CANCELLED_RE = /(?:^|_|\b)(CANCELLED|CANCELED)(?:$|_|\b)/i;
 const RETRY_STATUS_RE = /RETRY/i;
 const ACTIVE_STATUS_RE = /RUNNING|GENERATING|WAITING/i;
 
@@ -84,6 +85,17 @@ function isRetryStep(step) {
 
 function isArchivedSummary(summary) {
   return Boolean(summary?.archived || summary?.isArchived || summary?.trajectoryMetadata?.archived);
+}
+
+function hasTerminalErrorTail(proj) {
+  const steps = Array.isArray(proj?.steps) ? proj.steps : [];
+  if (steps.length === 0) return false;
+  const lastStep = steps[steps.length - 1];
+  const status = String(lastStep?.status || '');
+  const type = String(lastStep?.type || '');
+  const isToolStep = Boolean(lastStep?.toolSummary) || /CODE_ACTION|VIEW_FILE|COMMAND|TOOL/i.test(type);
+  if (isToolStep) return false;
+  return isRetryStep(lastStep) || TERMINAL_FAILURE_RE.test(status);
 }
 
 function inspectProjectionActivity(proj, summaryStatus = '') {
@@ -353,6 +365,7 @@ export class AvailabilityWatchdog {
       retrySinceMs: state.retrySinceMs ?? null,
       lastProgressAtMs: state.lastProgressAtMs ?? null,
       baselineRetryCount: state.baselineRetryCount ?? 0,
+      terminalFailed: Boolean(state.terminalFailed),
     });
   }
 
@@ -445,7 +458,14 @@ export class AvailabilityWatchdog {
     }
 
     if (TERMINAL_SUCCESS_RE.test(status)) {
-      this.#setConvState(conversationId, { status, stepCount, lastModifiedTime });
+      if (prev && progressed && !USER_CANCELLED_RE.test(status)) {
+        const proj = await this.#safeGetProjection(conversationId, summary);
+        if (hasTerminalErrorTail(proj)) {
+          await this.#handleTerminalFailure(conversationId, summary, title, status, stepCount, lastModifiedTime, prev, childIssues, proj);
+          return;
+        }
+      }
+      this.#setConvState(conversationId, { status, stepCount, lastModifiedTime, terminalFailed: false });
       this.#resolveConversationIncidents(conversationId, title, status);
       return;
     }
@@ -471,13 +491,13 @@ export class AvailabilityWatchdog {
     });
   }
 
-  async #handleTerminalFailure(conversationId, summary, title, status, stepCount, lastModifiedTime, prev, childIssues) {
-    const wasAlreadyFailed = Boolean(prev && TERMINAL_FAILURE_RE.test(prev.status));
-    this.#setConvState(conversationId, { status, stepCount, lastModifiedTime });
+  async #handleTerminalFailure(conversationId, summary, title, status, stepCount, lastModifiedTime, prev, childIssues, prefetchedProj = null) {
+    const wasAlreadyFailed = Boolean(prev?.terminalFailed || (prev && TERMINAL_FAILURE_RE.test(prev.status)));
+    this.#setConvState(conversationId, { status, stepCount, lastModifiedTime, terminalFailed: true });
     if (wasAlreadyFailed) return;
 
     this.#clearStallIncidentSilently(conversationId);
-    const proj = await this.#safeGetProjection(conversationId, summary);
+    const proj = prefetchedProj || (await this.#safeGetProjection(conversationId, summary));
     const info = inspectProjectionActivity(proj, status);
     const primaryChild = childIssues.find((c) => c.errorMessage) || childIssues[0] || null;
     const rawMsg =

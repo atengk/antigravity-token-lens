@@ -408,3 +408,111 @@ test('忽略已归档会话、聚合运行中子代理失败、识别纯 403 并
   assert.equal(authEvent.alertEvent.incidents.length, 2);
   assert.ok(authEvent.alertEvent.incidents.every((inc) => inc.conversationId !== 'archived'));
 });
+
+test('识别真实 CASCADE_RUN_STATUS_* 枚举及异常终止后回落 IDLE 的末尾错误步', async () => {
+  const { watchdog, sent, lsClient, advanceMs } = createHarness({
+    summaries: {
+      'hist-idle-err': {
+        status: 'CASCADE_RUN_STATUS_IDLE',
+        stepCount: 5,
+        summary: '历史错误会话',
+        lastModifiedTime: '2026-11-25T07:00:00Z',
+      },
+      'term-idle': {
+        status: 'CASCADE_RUN_STATUS_RUNNING',
+        stepCount: 6,
+        summary: '熟悉交接文档',
+        lastModifiedTime: '2026-11-25T07:50:00Z',
+      },
+      'normal-idle': {
+        status: 'CASCADE_RUN_STATUS_RUNNING',
+        stepCount: 3,
+        summary: '正常结束会话',
+        lastModifiedTime: '2026-11-25T07:50:00Z',
+      },
+    },
+    projections: {
+      'hist-idle-err': {
+        steps: [
+          {
+            index: 4,
+            type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE',
+            status: 'CORTEX_STEP_STATUS_DONE',
+            errorSummary: { message: 'Error Unknown: Agent execution terminated due to error.' },
+          },
+        ],
+      },
+    },
+  });
+
+  // 1) 基线扫描不补发历史错误
+  await watchdog.pollOnce();
+  await watchdog.flushPending();
+  assert.equal(sent.length, 0);
+
+  // 2) 运行中会话因未知错误终止并直接回到 CASCADE_RUN_STATUS_IDLE，正常结束会话回到 IDLE 不误报
+  advanceMs(15_000);
+  lsClient.state.summaries['term-idle'] = {
+    status: 'CASCADE_RUN_STATUS_IDLE',
+    stepCount: 7,
+    summary: '熟悉交接文档',
+    lastModifiedTime: '2026-11-25T07:50:15Z',
+  };
+  lsClient.state.projections['term-idle'] = {
+    summary: lsClient.state.summaries['term-idle'],
+    steps: [
+      { index: 5, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+      {
+        index: 6,
+        type: 'CORTEX_STEP_TYPE_ERROR_MESSAGE',
+        status: 'CORTEX_STEP_STATUS_ERROR',
+        errorSummary: { message: 'Error Unknown: Agent execution terminated due to error.' },
+      },
+    ],
+  };
+
+  lsClient.state.summaries['normal-idle'] = {
+    status: 'CASCADE_RUN_STATUS_IDLE',
+    stepCount: 4,
+    summary: '正常结束会话',
+    lastModifiedTime: '2026-11-25T07:50:15Z',
+  };
+  lsClient.state.projections['normal-idle'] = {
+    summary: lsClient.state.summaries['normal-idle'],
+    steps: [
+      { index: 3, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    ],
+  };
+
+  await watchdog.pollOnce();
+  advanceMs(5_500);
+  await watchdog.flushPending();
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].alertEvent.category, 'task_failed');
+  assert.equal(sent[0].alertEvent.incidents.length, 1);
+  assert.equal(sent[0].alertEvent.incidents[0].conversationId, 'term-idle');
+
+  // 3) 同一会话后续恢复并正常完成时发送已恢复通知
+  advanceMs(15_000);
+  lsClient.state.summaries['term-idle'] = {
+    status: 'CASCADE_RUN_STATUS_IDLE',
+    stepCount: 8,
+    summary: '熟悉交接文档',
+    lastModifiedTime: '2026-11-25T07:50:30Z',
+  };
+  lsClient.state.projections['term-idle'] = {
+    summary: lsClient.state.summaries['term-idle'],
+    steps: [
+      { index: 7, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'CORTEX_STEP_STATUS_DONE' },
+    ],
+  };
+
+  await watchdog.pollOnce();
+  advanceMs(5_500);
+  await watchdog.flushPending();
+
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].alertEvent.kind, 'recovery');
+  assert.equal(sent[1].alertEvent.category, 'task_failed');
+});
