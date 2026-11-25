@@ -46,7 +46,16 @@
 
     <!-- 当前会话标题与状态栏 -->
     <section class="tl-meta-bar">
-      <div id="conv-title" class="tl-conv-title" title="">--</div>
+      <div class="tl-conv-picker">
+        <button id="btn-conv-picker" class="tl-conv-btn" type="button" aria-expanded="false">
+          <span id="conv-title" class="tl-conv-title-text">--</span>
+          <span class="tl-conv-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="conv-dropdown" class="tl-conv-dropdown hidden">
+          <input id="input-conv-filter" class="tl-conv-filter" type="search" placeholder="搜索历史会话...">
+          <div id="conv-list" class="tl-conv-list"></div>
+        </div>
+      </div>
       <div class="tl-status-row">
         <span id="status-badge" class="tl-status-pill">
           <span class="tl-dot"></span>
@@ -54,6 +63,7 @@
         </span>
         <span id="model-badge" class="tl-badge tl-badge-model">--</span>
         <span id="source-badge" class="tl-badge tl-badge-source">--</span>
+        <button id="concurrent-badge" class="tl-btn tl-concurrent-pill hidden" type="button"></button>
       </div>
     </section>
 
@@ -111,10 +121,14 @@
     <section id="empty-state" class="tl-card tl-empty hidden">
       <div id="empty-title" class="tl-empty-title">暂无会话数据</div>
       <div id="empty-desc" class="tl-empty-desc">在对话发送消息后，实时上下文与 Token 指标将自动显示在此处。</div>
+      <div class="tl-empty-actions">
+        <button id="btn-empty-stats" class="tl-btn tl-btn-ghost" type="button">查看日/周/月/年用量统计</button>
+      </div>
     </section>
 
-    <!-- 空会话状态下的独立配额详情容器 -->
+    <!-- 空会话状态下的独立配额与统计详情容器 -->
     <section id="empty-quota-card" class="tl-card hidden"></section>
+    <section id="empty-stats-card" class="tl-card hidden"></section>
 
     <!-- 主内容区域 -->
     <main id="main-content" class="tl-main hidden">
@@ -223,6 +237,7 @@
           <button class="tl-tab" data-tab="subagents" role="tab" type="button">子代理</button>
           <button class="tl-tab" data-tab="diagnostics" role="tab" type="button">工具与诊断</button>
           <button class="tl-tab" data-tab="quota" role="tab" type="button">配额用量</button>
+          <button class="tl-tab" data-tab="stats" role="tab" type="button">用量统计</button>
         </nav>
 
         <div id="tab-breakdown" class="tl-tab-pane"></div>
@@ -230,6 +245,7 @@
         <div id="tab-subagents" class="tl-tab-pane hidden"></div>
         <div id="tab-diagnostics" class="tl-tab-pane hidden"></div>
         <div id="tab-quota" class="tl-tab-pane hidden"></div>
+        <div id="tab-stats" class="tl-tab-pane hidden"></div>
       </section>
     </main>
   </div>

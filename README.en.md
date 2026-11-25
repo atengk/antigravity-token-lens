@@ -17,17 +17,24 @@ English | [简体中文](./README.md)
   - **Offline Fallback**: Gracefully falls back to local `transcript.jsonl` (tolerant of concurrent trailing partial-line writes) and Swarm `members.json` when disconnected or viewing archived chats.
 - **Context Watermark & Runway Estimate**:
   - Live usage bar with configurable warning (`70%`) and critical (`85%`) thresholds, custom per-model/per-chat limit overrides, and one-click `/compact` copy.
-  - Shows System Prompt / Tools / Chat Messages breakdown, average per-turn growth, and estimated turns remaining before reaching the critical threshold.
+  - Compact 4-segment summary bar (System Prompt / Custom & MCP Base / Tools / Chat Messages), average per-turn growth, and estimated turns remaining before reaching the critical threshold.
+- **Account Quota & Burn-Rate Alerts**:
+  - Real-time `5h` and `weekly` quota group tracking with active-pool highlighting, subscription tier, Prompt/Flow credits, and model deprecation/upgrade notices.
+  - Compares cycle time elapsed vs. quota consumed (Pacing Indicator) and computes window-gated `Quota Burn Rate` and depletion ETA alerts from bounded 7-day sparse samples (`quota-history.json`).
+- **Global Conversation Switcher & Concurrent Radar**:
+  - Searchable header dropdown for switching across the 50 most recent conversations, with live indicators for concurrent background `RUNNING` sessions.
 - **Pure Streaming Speed & TTFT Breakdown**:
   - Separates `timeToFirstToken` from `streamingDuration` alongside end-to-end (E2E) throughput and thinking vs. response output token splits.
   - Filters ultra-short burst outliers (`< 0.25s` or `< 20` tokens) out of peak calculations and chart scaling.
 - **Cache Hit Trends & Rebuild Detection**:
   - Tracks cumulative and latest-turn hit rates, total tokens saved, and a 16-turn SVG hit-rate sparkline highlighting prefix cache rebuild drops.
-- **Four Drill-Down Tabs**:
-  - **Breakdown**: Human-readable labels for the top 10 heaviest steps (e.g. `#129 · read_file (app.js)`), plus expandable System Prompt / Tools groups.
+- **Six Drill-Down Tabs**:
+  - **Breakdown**: Human-readable labels for the top 10 heaviest steps (e.g. `#129 · read_file (app.js)`), plus all 8 native breakdown groups (`System Prompt`, `Rules`, `Skills`, `Subagents`, `Plugins`, `MCP Tools`, `Tools`, `Chat Messages`).
   - **Turns**: Filterable (`All / Rebuilt / Slow TTFT / Retried`) per-turn log with tool pills, latency, and cache metrics.
   - **Subagents**: Aggregates spawned subagent & Swarm costs with one-click drill-down inspection.
   - **Diagnostics**: Avg/P95 TTFT, cumulative wait/stream/tool durations, genuine API retry overhead, rules/customization budget usage, tool impact leaderboard, and one-click full JSON snapshot export.
+  - **Quota**: Adaptive two-column quota rings, Pacing tracks, sparse trend sparklines, and per-group model availability status.
+  - **Usage Stats**: Powered by a persistent incremental `usage-index.json` ledger with silent startup warmup—supports **Daily / Weekly / Monthly / Yearly** views, interactive bar charts, per-model distribution, and top parent-grouped conversations.
 
 ---
 

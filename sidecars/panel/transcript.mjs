@@ -10,7 +10,7 @@ import { join } from 'node:path';
 
 export const CONVERSATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // 以句末点号加空白/行尾截断，避免 Gemini 3.8 / Claude 5.5 等版本号中的小数点误截断
-const MODEL_SETTING_RE = /The user changed setting `Model Selection` from [^`\n]+? to ([^<\n]+?)\.(?=\s|$)/;
+export const MODEL_SETTING_RE = /The user changed setting `Model Selection` from [^`\n]+? to ([^<\n]+?)\.(?=\s|$)/;
 const SUBAGENT_ID_RE = /\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i;
 
 /**

@@ -17,6 +17,7 @@ import {
 } from './metrics.mjs';
 import { QuotaHistoryStore, computeQuotaSnapshot } from './quota.mjs';
 import { PreferencesStore, readHostThemeMode, resolvePlatformPaths } from './store.mjs';
+import { UsageLedgerStore, aggregateUsageByPeriod } from './usage-ledger.mjs';
 import {
   CONVERSATION_ID_RE,
   listLocalConversations,
@@ -55,6 +56,7 @@ export class PanelService {
   #prefs;
   #paths;
   #quotaHistory;
+  #usageLedger;
   #prefRevision = 1;
   #lastRpcError = null;
 
@@ -64,12 +66,18 @@ export class PanelService {
    * @param {PreferencesStore} deps.prefs 偏好存储实例
    * @param {object} deps.paths 解析后的路径配置
    * @param {QuotaHistoryStore} [deps.quotaHistory] 配额历史采样存储
+   * @param {UsageLedgerStore} [deps.usageLedger] 全量周期用量账本存储
    */
-  constructor({ lsClient, prefs, paths, quotaHistory = null }) {
+  constructor({ lsClient, prefs, paths, quotaHistory = null, usageLedger = null }) {
     this.#lsClient = lsClient;
     this.#prefs = prefs;
     this.#paths = paths;
     this.#quotaHistory = quotaHistory || (paths?.dataDir ? new QuotaHistoryStore(paths.dataDir) : null);
+    this.#usageLedger =
+      usageLedger ||
+      (paths?.dataDir
+        ? new UsageLedgerStore({ dataDir: paths.dataDir, appDataCandidates: paths.appDataCandidates || [] })
+        : null);
   }
 
   /**
@@ -117,10 +125,35 @@ export class PanelService {
   }
 
   /**
-   * 获取可切换的历史与当前会话列表（主会话为主，附带子代理计数）。
+   * 获取指定周期（日/周/月/年）的全量 Token 用量统计，使用增量持久化账本避免全盘重扫。
+   *
+   * @param {{ period?: string, targetKey?: string|null, force?: boolean }} [params] 查询参数
+   * @return {Promise<object>}
+   */
+  async getUsageStats({ period = 'day', targetKey = null, force = false } = {}) {
+    if (!this.#usageLedger) {
+      return aggregateUsageByPeriod({ conversations: {} }, { period, targetKey });
+    }
+    const [ledgerDoc, summaries] = await Promise.all([
+      this.#usageLedger.sync({ force }),
+      this.#lsClient.getSummaries(false).catch(() => ({})),
+    ]);
+    const onlineMeta = {};
+    for (const [id, s] of Object.entries(summaries || {})) {
+      const tm = s?.trajectoryMetadata || {};
+      onlineMeta[id] = {
+        parentId: tm.parentConversationId || null,
+        title: typeof s?.summary === 'string' && s.summary.trim() ? s.summary.trim() : null,
+      };
+    }
+    return aggregateUsageByPeriod(ledgerDoc, { period, targetKey, onlineMeta });
+  }
+
+  /**
+   * 获取可切换的历史与当前会话列表（主会话为主，附带子代理计数与后台并发运行状态）。
    *
    * @param {string|null} currentId 当前焦点会话 ID
-   * @return {Promise<{ currentId: string|null, source: string, items: object[] }>}
+   * @return {Promise<{ currentId: string|null, source: string, items: object[], activeRunningOthers: object[] }>}
    */
   async getConversations(currentId) {
     try {
@@ -154,10 +187,14 @@ export class PanelService {
       }
 
       items.sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
-      return { currentId: currentId || null, source: 'rpc', items: items.slice(0, 50) };
+      const sliced = items.slice(0, 50);
+      const activeRunningOthers = sliced
+        .filter((it) => it.id !== currentId && /RUNNING|RETRY/i.test(it.status))
+        .map(({ id, title, status }) => ({ id, title, status }));
+      return { currentId: currentId || null, source: 'rpc', items: sliced, activeRunningOthers };
     } catch {
       const items = await listLocalConversations(this.#paths.appDataCandidates, 50);
-      return { currentId: currentId || null, source: 'transcript', items };
+      return { currentId: currentId || null, source: 'transcript', items, activeRunningOthers: [] };
     }
   }
 
@@ -363,8 +400,12 @@ async function startSidecar() {
   const paths = resolvePlatformPaths();
   const prefs = new PreferencesStore(paths.dataDir);
   const quotaHistory = new QuotaHistoryStore(paths.dataDir);
+  const usageLedger = new UsageLedgerStore({
+    dataDir: paths.dataDir,
+    appDataCandidates: paths.appDataCandidates || [],
+  });
   const lsClient = new LanguageServerClient({ productName: paths.productName });
-  const service = new PanelService({ lsClient, prefs, paths, quotaHistory });
+  const service = new PanelService({ lsClient, prefs, paths, quotaHistory, usageLedger });
 
   const indexHtml = readFileSync(join(__dirname, 'index.html'), 'utf8');
   app.page(
@@ -423,6 +464,24 @@ async function startSidecar() {
       }),
     'GET',
   );
+  app.api(
+    '/api/stats',
+    (data) =>
+      service.getUsageStats({
+        period: data.period || 'day',
+        targetKey: data.targetKey || null,
+        force: data.force === '1' || data.force === true,
+      }),
+    'GET',
+  );
+
+  // 启动 3 秒后后台静默预热全量用量账本，避开首屏竞争并实现统计 Tab 秒开
+  const warmupTimer = setTimeout(() => {
+    void usageLedger.sync({ force: false }).catch((err) => {
+      console.warn('[token-lens] Usage ledger warmup skipped:', err?.message || err);
+    });
+  }, 3000);
+  if (typeof warmupTimer.unref === 'function') warmupTimer.unref();
 
   return app.run();
 }

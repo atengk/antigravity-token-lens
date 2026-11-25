@@ -307,8 +307,15 @@ function buildBreakdownSummary(rawBreakdown, steps = []) {
   return { totalTokens, groups, topMessages, stepContextTokens };
 }
 
+const CUSTOM_BREAKDOWN_GROUPS = new Set(['mcp', 'subagents', 'skills', 'plugins', 'rules']);
+
 function classifyBreakdownGroup(type, name) {
   const probe = `${type || ''} ${name || ''}`.toLowerCase();
+  if (probe.includes('mcp')) return 'mcp';
+  if (probe.includes('subagent')) return 'subagents';
+  if (probe.includes('skill')) return 'skills';
+  if (probe.includes('plugin')) return 'plugins';
+  if (probe.includes('rule')) return 'rules';
   if (probe.includes('system')) return 'system';
   if (probe.includes('tool')) return 'tools';
   if (probe.includes('chat') || probe.includes('message')) return 'chat';
@@ -438,11 +445,18 @@ function aggregateDiagnostics(steps, breakdown, retryAcc, budgetSource) {
   );
 
   let customUsedTokens = 0;
-  const sysGroup = breakdown?.groups?.find((g) => g.key === 'system');
-  if (sysGroup?.items) {
-    for (const item of sysGroup.items) {
-      if (CUSTOM_SYSTEM_SECTIONS.has(item.name)) {
-        customUsedTokens += item.tokens;
+  for (const g of breakdown?.groups || []) {
+    if (CUSTOM_BREAKDOWN_GROUPS.has(g.key)) {
+      customUsedTokens += g.tokens || 0;
+    }
+  }
+  if (customUsedTokens === 0) {
+    const sysGroup = breakdown?.groups?.find((g) => g.key === 'system');
+    if (sysGroup?.items) {
+      for (const item of sysGroup.items) {
+        if (CUSTOM_SYSTEM_SECTIONS.has(item.name)) {
+          customUsedTokens += item.tokens;
+        }
       }
     }
   }

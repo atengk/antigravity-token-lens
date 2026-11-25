@@ -46,6 +46,10 @@ _Avoid_: 实测占用、真实上下文
 `Measured Prompt Input` 与 `Host Pre-flight Estimate` 之间的差值，用于向用户透明解释结构拆解明细总和与实测主水位之间的天然差异。
 _Avoid_: 误差补正、缩放差额
 
+**Customization Base（定制底座）**:
+除基础系统提示与内置工具外，由 `Rules`、`Skills`、`Subagents`、`Plugins` 与 `MCP Tools` 共同构成的常驻上下文固定开销。
+_Avoid_: 其他上下文、系统杂项
+
 ### 账户配额与速率限制 (Account Quota & Limits)
 
 **Quota Group（配额组）**:
@@ -75,3 +79,13 @@ _Avoid_: 预计剩余轮数
 **Plan Credits（套餐积分）**:
 用户订阅等级下按账户维度统计的可用 Prompt 与 Flow 积分余额，独立于模型组的周期性配额桶。
 _Avoid_: 配额桶、Token 余额
+
+### 全量周期统计 (Historical Usage Ledger)
+
+**Usage Ledger（全量用量账本）**:
+基于全部本地主会话与派生子代理轨迹逐轮归档并按本地自然日分摊的周期性（日 / 周 / 月 / 年）Token 消耗统计账本。
+_Avoid_: 单会话累计消耗、配额桶
+
+**Time-Bucketed Usage（周期分桶用量）**:
+按本机时区自然日、自然周（ISO Week）、自然月或自然年汇总的模型级 `Uncached Input`、`Cache Read` 与 `Output` 消耗统计。
+_Avoid_: 滑窗配额、5h 限额

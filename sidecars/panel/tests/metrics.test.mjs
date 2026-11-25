@@ -512,3 +512,45 @@ test('上下文占用优先采信实测输入并在生成中空档期平滑回�
   assert.equal(running.context.usedSource, 'preflight');
   assert.equal(running.context.estimationDelta, null);
 });
+
+test('computeMetricsFromProjection 精确识别 8 类 tokenBreakdown 原生分组并累加定制底座预算', () => {
+  const proj = {
+    summary: { status: 'IDLE', stepCount: 2 },
+    steps: [
+      { index: 0, type: 'USER_INPUT', status: 'DONE' },
+      { index: 1, type: 'PLANNER_RESPONSE', status: 'DONE' },
+    ],
+    generatorMetadata: [
+      {
+        index: 0,
+        stepIndices: [1],
+        model: 'MODEL_PLACEHOLDER_M525',
+        rulesTokenBudget: 20000,
+        customizationTokenBudget: 20000,
+        usage: { inputTokens: 30000, cacheReadTokens: 0, outputTokens: 200 },
+        contextWindow: {
+          estimatedTokensUsed: 30000,
+          maxContextTokens: 512000,
+          tokenBreakdown: {
+            totalTokens: 30000,
+            groups: [
+              { name: 'System Prompt', type: 'TOKEN_TYPE_SYSTEM_PROMPT', numTokens: 4930, children: [{ name: 'identity', numTokens: 500 }] },
+              { name: 'Mcp Tools', type: 'TOKEN_TYPE_MCP_TOOLS', numTokens: 595, children: [{ name: 'mcp_servers', numTokens: 595 }] },
+              { name: 'Subagents', type: 'TOKEN_TYPE_SUBAGENTS', numTokens: 2885, children: [{ name: 'subagents', numTokens: 2885 }] },
+              { name: 'Skills', type: 'TOKEN_TYPE_SKILLS', numTokens: 4077, children: [{ name: 'skills', numTokens: 4077 }] },
+              { name: 'Plugins', type: 'TOKEN_TYPE_PLUGINS', numTokens: 1624, children: [{ name: 'featured_plugins', numTokens: 1624 }] },
+              { name: 'Rules', type: 'TOKEN_TYPE_RULES', numTokens: 5887, children: [{ name: 'user_rules', numTokens: 5887 }] },
+              { name: 'Tools', type: 'TOKEN_TYPE_TOOLS', numTokens: 9766, children: [{ name: 'read_file', numTokens: 2000 }] },
+              { name: 'Chat Messages', type: 'TOKEN_TYPE_CHAT_MESSAGES', numTokens: 235, children: [{ name: '0: USER_INPUT', numTokens: 235 }] },
+            ],
+          },
+        },
+      },
+    ],
+  };
+
+  const m = computeMetricsFromProjection('conv-8groups', proj, { warnAt: 70, criticalAt: 85 });
+  const keys = m.context.breakdown.groups.map((g) => g.key);
+  assert.deepEqual(keys, ['system', 'mcp', 'subagents', 'skills', 'plugins', 'rules', 'tools', 'chat']);
+  assert.equal(m.diagnostics.budgets.customUsedTokens, 595 + 2885 + 4077 + 1624 + 5887);
+});

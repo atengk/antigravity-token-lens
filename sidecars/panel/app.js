@@ -75,9 +75,15 @@
       stepPrefix: '步骤 #',
       clickInspect: '点击下钻查看 →',
       groupSystem: '系统指令',
-      groupTools: '工具定义',
+      groupRules: '用户规则 (Rules)',
+      groupSkills: '技能 (Skills)',
+      groupSubagents: '子代理定义',
+      groupPlugins: '扩展插件',
+      groupMcp: 'MCP 工具',
+      groupTools: '内置工具',
       groupChat: '对话消息',
       groupOther: '其他',
+      groupCustomBase: '定制与MCP底座',
       perTurnGrowth: '轮均增长',
       estTurnsLeft: '约剩',
       turnsUnit: '轮',
@@ -126,6 +132,29 @@
       quotaCreditsFlow: 'Flow 积分',
       quotaScopeNote: '注：配额消耗为账号级全局实测值（包含并发对话窗口与子代理调用），不同模型按成本比例扣减。',
       quotaOtherModels: '其他套餐限制模型',
+      convFilterPlaceholder: '搜索历史会话标题...',
+      convBackRoot: '← 回到当前宿主会话',
+      convNoMatch: '未找到匹配会话',
+      concurrentRunningSuffix: '后台运行中',
+      emptyViewStats: '查看日 / 周 / 月 / 年用量统计',
+      tabStats: '用量统计',
+      statsDay: '日',
+      statsWeek: '周',
+      statsMonth: '月',
+      statsYear: '年',
+      statsTotal: '周期总消耗',
+      statsTurns: '轮调用',
+      statsUncached: '未命中输入',
+      statsOutput: '模型输出',
+      statsCacheHit: '缓存命中率',
+      statsSaved: '命中省下',
+      statsByModel: '按模型分布',
+      statsTopConvs: 'Top 消耗会话',
+      statsWithSubagents: '含 {n} 子代理',
+      statsSubagentTag: '子代理',
+      statsNoData: '选定周期内暂无 Token 消耗记录。',
+      statsLoading: '正在同步本地用量账本...',
+      statsScopeNote: '注：统计基于本地持久化全量轨迹账本（涵盖全部主会话与子代理，不含在线重试及缓存写入附加开销）。',
     },
     en: {
       backParent: '← Back to Parent',
@@ -193,9 +222,15 @@
       stepPrefix: 'Step #',
       clickInspect: 'Inspect →',
       groupSystem: 'System Prompt',
+      groupRules: 'Rules',
+      groupSkills: 'Skills',
+      groupSubagents: 'Subagents',
+      groupPlugins: 'Plugins',
+      groupMcp: 'MCP Tools',
       groupTools: 'Tools',
       groupChat: 'Chat Messages',
       groupOther: 'Other',
+      groupCustomBase: 'Custom & MCP Base',
       perTurnGrowth: 'Growth',
       estTurnsLeft: '~left',
       turnsUnit: 'turns',
@@ -244,6 +279,29 @@
       quotaCreditsFlow: 'Flow Credits',
       quotaScopeNote: 'Account-wide measured quota (includes concurrent chats & subagents); consumed proportionally to token cost.',
       quotaOtherModels: 'Other tier-gated models',
+      convFilterPlaceholder: 'Filter conversations...',
+      convBackRoot: '← Return to host focus conversation',
+      convNoMatch: 'No matching conversations',
+      concurrentRunningSuffix: 'running',
+      emptyViewStats: 'View Daily / Weekly / Monthly / Yearly Stats',
+      tabStats: 'Usage Stats',
+      statsDay: 'Day',
+      statsWeek: 'Week',
+      statsMonth: 'Month',
+      statsYear: 'Year',
+      statsTotal: 'Period Total',
+      statsTurns: 'turns',
+      statsUncached: 'Uncached In',
+      statsOutput: 'Output',
+      statsCacheHit: 'Cache Hit',
+      statsSaved: 'Saved',
+      statsByModel: 'By Model',
+      statsTopConvs: 'Top Conversations',
+      statsWithSubagents: '+{n} subagents',
+      statsSubagentTag: 'Subagent',
+      statsNoData: 'No token usage recorded for this period.',
+      statsLoading: 'Syncing local usage ledger...',
+      statsScopeNote: 'Computed from persistent local transcript ledger (includes all main chats & subagents; excludes retry & cache-write overhead).',
     },
   };
 
@@ -258,14 +316,22 @@
     etag: null,
     snapshot: null,
     quota: null,
+    conversations: null,
+    stats: null,
+    statsPeriod: 'day',
+    statsTargetKey: null,
+    convDropdownOpen: false,
+    convFilter: '',
     pollTimer: null,
     quotaTimer: null,
     clockTimer: null,
     isFetching: false,
     isQuotaFetching: false,
+    isStatsFetching: false,
     pendingQuotaForce: false,
     wasRunning: false,
     emptyQuotaOpen: false,
+    emptyStatsOpen: false,
     lastAutoResetRefreshAt: 0,
     lastClockTickSec: 0,
   };
@@ -367,6 +433,8 @@
     $('btn-save-settings').textContent = t('saveSettings');
     $('empty-title').textContent = t('emptyTitle');
     $('empty-desc').textContent = t('emptyDesc');
+    $('btn-empty-stats').textContent = t('emptyViewStats');
+    $('input-conv-filter').placeholder = t('convFilterPlaceholder');
     $('lbl-context-title').textContent = t('contextTitle');
     $('lbl-cache-title').textContent = t('cacheTitle');
     $('lbl-totals-title').textContent = t('totalsTitle');
@@ -380,8 +448,11 @@
       else if (tab.dataset.tab === 'subagents') tab.textContent = t('tabSubagents');
       else if (tab.dataset.tab === 'diagnostics') tab.textContent = t('tabDiagnostics');
       else if (tab.dataset.tab === 'quota') tab.textContent = t('tabQuota');
+      else if (tab.dataset.tab === 'stats') tab.textContent = t('tabStats');
     }
     if (state.quota) renderQuotaUi();
+    if (state.conversations) renderConversationsUi();
+    if (state.stats) renderStatsUi();
   }
 
   async function copyText(text, btnEl) {
@@ -510,7 +581,357 @@
     clearTimeout(state.quotaTimer);
     const hidden = document.visibilityState === 'hidden';
     const delay = hidden ? 60_000 : 20_000;
-    state.quotaTimer = setTimeout(() => void refreshQuota(false), delay);
+    state.quotaTimer = setTimeout(() => {
+      void refreshQuota(false);
+      void refreshConversations();
+    }, delay);
+  }
+
+  async function refreshConversations() {
+    try {
+      const params = new URLSearchParams();
+      if (state.focusedConversationId) params.set('conversationId', state.focusedConversationId);
+      const res = await apiFetch(`/api/conversations?${params.toString()}`);
+      if (!res.ok) return;
+      state.conversations = await res.json();
+      renderConversationsUi();
+    } catch {
+      // 会话列表刷新失败不影响主指标链路
+    }
+  }
+
+  function renderConversationsUi() {
+    const data = state.conversations;
+    const concBtn = $('concurrent-badge');
+    const runningOthers = Array.isArray(data?.activeRunningOthers) ? data.activeRunningOthers : [];
+    if (runningOthers.length > 0) {
+      concBtn.classList.remove('hidden');
+      concBtn.replaceChildren();
+      const dot = document.createElement('span');
+      dot.className = 'tl-live-dot';
+      const txt = document.createElement('span');
+      txt.textContent = `+${runningOthers.length} ${t('concurrentRunningSuffix')}`;
+      concBtn.append(dot, txt);
+      concBtn.title = runningOthers.map((r) => r.title).join('\n');
+    } else {
+      concBtn.classList.add('hidden');
+    }
+
+    const listEl = $('conv-list');
+    if (!state.convDropdownOpen || !listEl) return;
+    listEl.replaceChildren();
+
+    if (state.rootConversationId && state.focusedConversationId !== state.rootConversationId) {
+      const backItem = document.createElement('button');
+      backItem.type = 'button';
+      backItem.className = 'tl-conv-item';
+      backItem.textContent = t('convBackRoot');
+      backItem.addEventListener('click', () => {
+        closeConvDropdown();
+        switchConversation(state.rootConversationId);
+      });
+      listEl.appendChild(backItem);
+    }
+
+    const q = state.convFilter.trim().toLowerCase();
+    const items = (data?.items || []).filter((it) => !q || String(it.title || '').toLowerCase().includes(q));
+    if (items.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'tl-muted';
+      empty.style.padding = '6px 8px';
+      empty.textContent = t('convNoMatch');
+      listEl.appendChild(empty);
+      return;
+    }
+
+    for (const item of items) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const isSelected = item.id === state.focusedConversationId;
+      btn.className = `tl-conv-item${isSelected ? ' is-selected' : ''}`;
+      btn.addEventListener('click', () => {
+        closeConvDropdown();
+        switchConversation(item.id);
+      });
+
+      const left = document.createElement('span');
+      left.className = 'tl-conv-item-left';
+      if (/RUNNING|RETRY/i.test(item.status || '')) {
+        const dot = document.createElement('span');
+        dot.className = 'tl-live-dot';
+        left.appendChild(dot);
+      }
+      const title = document.createElement('span');
+      title.className = 'tl-conv-item-title';
+      title.textContent = item.title || item.id.slice(0, 8);
+      left.appendChild(title);
+
+      const meta = document.createElement('span');
+      meta.className = 'tl-conv-item-meta';
+      const subNote = item.subagentCount > 0 ? `+${item.subagentCount} ` : '';
+      const timeStr = item.updatedAt
+        ? new Date(item.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '';
+      meta.textContent = `${subNote}${timeStr}`;
+
+      btn.append(left, meta);
+      listEl.appendChild(btn);
+    }
+  }
+
+  function closeConvDropdown() {
+    state.convDropdownOpen = false;
+    $('conv-dropdown').classList.add('hidden');
+    $('btn-conv-picker').setAttribute('aria-expanded', 'false');
+  }
+
+  async function refreshStats(force = false) {
+    if (state.isStatsFetching) return;
+    state.isStatsFetching = true;
+    renderStatsUi();
+    try {
+      const params = new URLSearchParams();
+      params.set('period', state.statsPeriod || 'day');
+      if (state.statsTargetKey) params.set('targetKey', state.statsTargetKey);
+      if (force) params.set('force', '1');
+      const res = await apiFetch(`/api/stats?${params.toString()}`);
+      if (!res.ok) return;
+      state.stats = await res.json();
+    } catch {
+      // 统计接口异常不阻断主面板
+    } finally {
+      state.isStatsFetching = false;
+      renderStatsUi();
+    }
+  }
+
+  function formatPeriodBarLabel(key, period) {
+    if (!key) return '';
+    if (period === 'day') return key.slice(5);
+    if (period === 'week') return key.slice(5);
+    if (period === 'month') return key.slice(2);
+    return key;
+  }
+
+  function renderStatsTab(container, stats) {
+    container.replaceChildren();
+    const wrap = document.createElement('div');
+    wrap.className = 'tl-stats-pane';
+
+    // 1. 顶部周期切换工具栏
+    const toolbar = document.createElement('div');
+    toolbar.className = 'tl-stats-toolbar';
+
+    const periods = document.createElement('div');
+    periods.className = 'tl-stats-periods';
+    const periodOpts = [
+      { id: 'day', label: t('statsDay') },
+      { id: 'week', label: t('statsWeek') },
+      { id: 'month', label: t('statsMonth') },
+      { id: 'year', label: t('statsYear') },
+    ];
+    for (const p of periodOpts) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `tl-filter-chip${state.statsPeriod === p.id ? ' is-active' : ''}`;
+      btn.textContent = p.label;
+      btn.addEventListener('click', () => {
+        if (state.statsPeriod === p.id) return;
+        state.statsPeriod = p.id;
+        state.statsTargetKey = null;
+        void refreshStats(false);
+      });
+      periods.appendChild(btn);
+    }
+
+    const controls = document.createElement('div');
+    controls.className = 'tl-stats-controls';
+    if (stats?.availableKeys?.length) {
+      const sel = document.createElement('select');
+      sel.className = 'tl-stats-select';
+      for (const k of stats.availableKeys) {
+        const opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = k;
+        opt.selected = k === stats.selectedKey;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => {
+        state.statsTargetKey = sel.value || null;
+        void refreshStats(false);
+      });
+      controls.appendChild(sel);
+    }
+    const reloadBtn = document.createElement('button');
+    reloadBtn.type = 'button';
+    reloadBtn.className = 'tl-btn tl-btn-mini';
+    reloadBtn.textContent = '↻';
+    reloadBtn.addEventListener('click', () => void refreshStats(true));
+    controls.appendChild(reloadBtn);
+
+    toolbar.append(periods, controls);
+    wrap.appendChild(toolbar);
+
+    if (!stats && state.isStatsFetching) {
+      const loading = document.createElement('div');
+      loading.className = 'tl-muted';
+      loading.textContent = t('statsLoading');
+      wrap.appendChild(loading);
+      container.appendChild(wrap);
+      return;
+    }
+
+    if (!stats) {
+      container.appendChild(wrap);
+      return;
+    }
+
+    // 2. 周期汇总 3 格卡片
+    const sel = stats.selected || {};
+    const summaryGrid = document.createElement('div');
+    summaryGrid.className = 'tl-totals-grid';
+    summaryGrid.innerHTML = [
+      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsTotal'))}</span><span class="tl-cell-num tl-num-accent">${escHtml(fmtCompact(sel.totalTokens))}</span><span class="tl-diag-sub">${escHtml(fmtInt(sel.turns))} ${escHtml(t('statsTurns'))}</span></div>`,
+      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsUncached'))} / ${escHtml(t('statsOutput'))}</span><span class="tl-cell-num">${escHtml(fmtCompact(sel.uncachedInput))}</span><span class="tl-diag-sub">${escHtml(t('statsOutput'))} ${escHtml(fmtCompact(sel.output))}</span></div>`,
+      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsCacheHit'))}</span><span class="tl-cell-num">${escHtml(fmtPct(sel.cacheHitRate))}</span><span class="tl-diag-sub">${escHtml(t('statsSaved'))} ${escHtml(fmtCompact(sel.cacheRead))}</span></div>`,
+    ].join('');
+    wrap.appendChild(summaryGrid);
+
+    // 3. 交互式周期柱状图
+    const series = Array.isArray(stats.series) ? stats.series : [];
+    if (series.length > 0) {
+      const chartBox = document.createElement('div');
+      chartBox.className = 'tl-stats-chart-box';
+      const maxVal = Math.max(...series.map((s) => s.totalTokens || 0), 1);
+      const bars = document.createElement('div');
+      bars.className = 'tl-stats-bars';
+
+      for (const s of series) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `tl-stats-bar-btn${s.key === stats.selectedKey ? ' is-active' : ''}`;
+        btn.title = `${s.key}: ${fmtInt(s.totalTokens)} tok (${s.turns} ${t('statsTurns')})`;
+        btn.addEventListener('click', () => {
+          state.statsTargetKey = s.key;
+          void refreshStats(false);
+        });
+
+        const pctH = s.totalTokens > 0 ? Math.max(8, (s.totalTokens / maxVal) * 52) : 3;
+        const fill = document.createElement('div');
+        fill.className = 'tl-stats-bar-fill';
+        fill.style.height = `${pctH.toFixed(1)}px`;
+
+        const lbl = document.createElement('span');
+        lbl.className = 'tl-stats-bar-lbl';
+        lbl.textContent = formatPeriodBarLabel(s.key, stats.period);
+        btn.append(fill, lbl);
+        bars.appendChild(btn);
+      }
+      chartBox.appendChild(bars);
+      wrap.appendChild(chartBox);
+    }
+
+    if ((sel.totalTokens || 0) === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'tl-muted';
+      empty.textContent = t('statsNoData');
+      wrap.appendChild(empty);
+    } else {
+      // 4. 分模型排行 + Top 会话榜单
+      const grid2 = document.createElement('div');
+      grid2.className = 'tl-stats-grid-2';
+
+      const mCard = document.createElement('div');
+      mCard.className = 'tl-bk-group';
+      const mHead = document.createElement('div');
+      mHead.className = 'tl-bk-group-head';
+      mHead.textContent = t('statsByModel');
+      mCard.appendChild(mHead);
+
+      const mList = document.createElement('div');
+      mList.className = 'tl-bk-items';
+      for (const m of (stats.byModel || []).slice(0, 10)) {
+        const itemWrap = document.createElement('div');
+        itemWrap.className = 'tl-bk-item-wrap';
+        const row = document.createElement('div');
+        row.className = 'tl-bk-item';
+        const left = document.createElement('span');
+        left.className = 'tl-bk-name';
+        left.textContent = m.model;
+        const right = document.createElement('span');
+        right.className = 'tl-bk-val';
+        right.textContent = `${fmtCompact(m.totalTokens)} (${m.sharePct.toFixed(0)}%)`;
+        row.append(left, right);
+
+        const track = document.createElement('div');
+        track.className = 'tl-bk-mini-track';
+        const fill = document.createElement('div');
+        fill.className = 'tl-bk-mini-fill';
+        fill.style.width = `${Math.min(100, Math.max(4, m.sharePct)).toFixed(1)}%`;
+        track.appendChild(fill);
+        itemWrap.append(row, track);
+        mList.appendChild(itemWrap);
+      }
+      mCard.appendChild(mList);
+
+      const cCard = document.createElement('div');
+      cCard.className = 'tl-bk-group';
+      const cHead = document.createElement('div');
+      cHead.className = 'tl-bk-group-head';
+      cHead.textContent = t('statsTopConvs');
+      cCard.appendChild(cHead);
+
+      const cList = document.createElement('div');
+      cList.className = 'tl-bk-items';
+      for (const c of (stats.topConversations || []).slice(0, 10)) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tl-stats-conv-btn';
+        btn.addEventListener('click', () => {
+          state.emptyStatsOpen = false;
+          switchConversation(c.id);
+        });
+
+        const left = document.createElement('span');
+        left.className = 'tl-bk-name';
+        const subBadge = c.subagentCount > 0
+          ? ` (${t('statsWithSubagents').replace('{n}', String(c.subagentCount))})`
+          : c.isSubagent
+            ? ` (${t('statsSubagentTag')})`
+            : '';
+        left.textContent = `${c.title}${subBadge}`;
+        left.title = c.title;
+
+        const right = document.createElement('span');
+        right.className = 'tl-bk-val';
+        right.textContent = `${fmtCompact(c.totalTokens)} · ${fmtPct(c.cacheHitRate)}`;
+        btn.append(left, right);
+        cList.appendChild(btn);
+      }
+      cCard.appendChild(cList);
+
+      grid2.append(mCard, cCard);
+      wrap.appendChild(grid2);
+    }
+
+    const note = document.createElement('div');
+    note.className = 'tl-quota-footnote';
+    note.textContent = t('statsScopeNote');
+    wrap.appendChild(note);
+
+    container.appendChild(wrap);
+  }
+
+  function renderStatsUi() {
+    renderStatsTab($('tab-stats'), state.stats);
+    const isEmptyView = !$('empty-state').classList.contains('hidden');
+    const standalone = $('empty-stats-card');
+    if (isEmptyView && state.emptyStatsOpen) {
+      standalone.classList.remove('hidden');
+      renderStatsTab(standalone, state.stats);
+    } else {
+      standalone.classList.add('hidden');
+    }
   }
 
   function formatRunningPhaseLabel(ar) {
@@ -581,6 +1002,7 @@
 
     $('empty-state').classList.add('hidden');
     $('empty-quota-card').classList.add('hidden');
+    $('empty-stats-card').classList.add('hidden');
     $('main-content').classList.remove('hidden');
 
     const c = snap.conversation || {};
@@ -1130,21 +1552,48 @@
     segBar.replaceChildren();
     legend.replaceChildren();
 
-    const colorClass = { system: 'tl-seg-system', tools: 'tl-seg-tools', chat: 'tl-seg-chat', other: 'tl-seg-other' };
-    const labelKey = { system: 'groupSystem', tools: 'groupTools', chat: 'groupChat', other: 'groupOther' };
+    const customKeys = new Set(['rules', 'skills', 'subagents', 'plugins', 'mcp']);
+    const buckets = {
+      system: { key: 'system', color: 'tl-seg-system', label: t('groupSystem'), tokens: 0, percent: 0, details: [] },
+      custom: { key: 'custom', color: 'tl-seg-custom', label: t('groupCustomBase'), tokens: 0, percent: 0, details: [] },
+      tools: { key: 'tools', color: 'tl-seg-tools', label: t('groupTools'), tokens: 0, percent: 0, details: [] },
+      chat: { key: 'chat', color: 'tl-seg-chat', label: t('groupChat'), tokens: 0, percent: 0, details: [] },
+      other: { key: 'other', color: 'tl-seg-other', label: t('groupOther'), tokens: 0, percent: 0, details: [] },
+    };
+
+    const detailNames = {
+      rules: 'Rules',
+      skills: 'Skills',
+      subagents: 'Subagents',
+      plugins: 'Plugins',
+      mcp: 'MCP',
+    };
 
     for (const g of breakdown.groups) {
+      const targetKey = customKeys.has(g.key) ? 'custom' : buckets[g.key] ? g.key : 'other';
+      const slot = buckets[targetKey];
+      slot.tokens += g.tokens || 0;
+      slot.percent += g.percent || 0;
+      if (targetKey === 'custom' && (g.tokens || 0) > 0) {
+        slot.details.push(`${detailNames[g.key] || g.name} ${fmtCompact(g.tokens)}`);
+      }
+    }
+
+    for (const segInfo of [buckets.system, buckets.custom, buckets.tools, buckets.chat, buckets.other]) {
+      if (segInfo.tokens <= 0) continue;
       const seg = document.createElement('div');
-      seg.className = `tl-seg ${colorClass[g.key] || 'tl-seg-other'}`;
-      seg.style.width = `${Math.max(0.5, g.percent).toFixed(2)}%`;
+      seg.className = `tl-seg ${segInfo.color}`;
+      seg.style.width = `${Math.max(0.5, segInfo.percent).toFixed(2)}%`;
+      if (segInfo.details.length) seg.title = segInfo.details.join(' · ');
       segBar.appendChild(seg);
 
       const item = document.createElement('span');
       item.className = 'tl-legend-item';
+      if (segInfo.details.length) item.title = segInfo.details.join(' · ');
       const dot = document.createElement('span');
-      dot.className = `tl-legend-dot ${colorClass[g.key] || 'tl-seg-other'}`;
+      dot.className = `tl-legend-dot ${segInfo.color}`;
       const txt = document.createElement('span');
-      txt.textContent = `${t(labelKey[g.key] || 'groupOther')} ${fmtCompact(g.tokens)} (${g.percent.toFixed(0)}%)`;
+      txt.textContent = `${segInfo.label} ${fmtCompact(segInfo.tokens)} (${segInfo.percent.toFixed(0)}%)`;
       item.append(dot, txt);
       legend.appendChild(item);
     }
@@ -1308,13 +1757,23 @@
       pane.appendChild(buildBreakdownGroupCard('top', t('topHotspots'), '', breakdown.topMessages));
     }
 
-    const labelKey = { system: 'groupSystem', tools: 'groupTools', chat: 'groupChat', other: 'groupOther' };
+    const labelKey = {
+      system: 'groupSystem',
+      rules: 'groupRules',
+      skills: 'groupSkills',
+      subagents: 'groupSubagents',
+      plugins: 'groupPlugins',
+      mcp: 'groupMcp',
+      tools: 'groupTools',
+      chat: 'groupChat',
+      other: 'groupOther',
+    };
     for (const g of breakdown.groups) {
       if (g.key === 'chat' && breakdown.topMessages?.length) continue;
       pane.appendChild(
         buildBreakdownGroupCard(
           g.key,
-          t(labelKey[g.key] || 'groupOther'),
+          t(labelKey[g.key] || 'groupOther') || g.name,
           `${fmtCompact(g.tokens)} (${g.percent.toFixed(1)}%)`,
           g.items || [],
         ),
@@ -1738,6 +2197,45 @@
     $('btn-refresh').addEventListener('click', () => {
       void refreshSnapshot(true);
       void refreshQuota(true);
+      void refreshConversations();
+      if (state.activeTab === 'stats' || state.emptyStatsOpen) {
+        void refreshStats(true);
+      }
+    });
+    $('btn-conv-picker').addEventListener('click', () => {
+      state.convDropdownOpen = !state.convDropdownOpen;
+      $('conv-dropdown').classList.toggle('hidden', !state.convDropdownOpen);
+      $('btn-conv-picker').setAttribute('aria-expanded', state.convDropdownOpen ? 'true' : 'false');
+      if (state.convDropdownOpen) {
+        $('input-conv-filter').focus();
+        renderConversationsUi();
+        void refreshConversations();
+      }
+    });
+    $('input-conv-filter').addEventListener('input', (e) => {
+      state.convFilter = e.target.value || '';
+      renderConversationsUi();
+    });
+    $('concurrent-badge').addEventListener('click', () => {
+      const running = state.conversations?.activeRunningOthers || [];
+      if (running.length === 1) {
+        switchConversation(running[0].id);
+      } else if (running.length > 1) {
+        state.convDropdownOpen = true;
+        $('conv-dropdown').classList.remove('hidden');
+        $('btn-conv-picker').setAttribute('aria-expanded', 'true');
+        renderConversationsUi();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (state.convDropdownOpen && !e.target.closest('.tl-conv-picker') && !e.target.closest('#concurrent-badge')) {
+        closeConvDropdown();
+      }
+    });
+    $('btn-empty-stats').addEventListener('click', () => {
+      state.emptyStatsOpen = !state.emptyStatsOpen;
+      if (state.emptyStatsOpen && !state.stats) void refreshStats(false);
+      else renderStatsUi();
     });
     $('quota-strip').addEventListener('click', () => {
       const isEmptyView = !$('empty-state').classList.contains('hidden');
@@ -1801,6 +2299,10 @@
         $('tab-subagents').classList.toggle('hidden', state.activeTab !== 'subagents');
         $('tab-diagnostics').classList.toggle('hidden', state.activeTab !== 'diagnostics');
         $('tab-quota').classList.toggle('hidden', state.activeTab !== 'quota');
+        $('tab-stats').classList.toggle('hidden', state.activeTab !== 'stats');
+        if (state.activeTab === 'stats') {
+          void refreshStats(false);
+        }
       });
     }
 
@@ -1821,6 +2323,7 @@
     bindEvents();
     void refreshSnapshot(true);
     void refreshQuota(true);
+    void refreshConversations();
     state.clockTimer = setInterval(() => {
       if (state.snapshot?.conversation?.isRunning) updateRunningTimer();
       const sec = Math.floor(Date.now() / 1000);
