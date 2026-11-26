@@ -168,6 +168,17 @@ test('PanelService.getUsageStats 与 getConversations 支持多周期统计与�
     const stats = await service.getUsageStats({ period: 'day', force: true });
     assert.equal(stats.selected.totalTokens, 10500);
     assert.equal(stats.topConversations[0].title, '主会话 A');
+
+    // 切换单位制偏好后，getSnapshot 返回脱敏偏好与二分口径 markdownSummary（上下文 K/M，统计万/亿）
+    const snapZh = await service.getSnapshot({ conversationId: convA, force: true });
+    assert.equal(snapZh.preferences.unitSystem, 'auto');
+    assert.match(snapZh.markdownSummary, /\*\*上下文水位\*\*: 10\.0K \/ 512\.0K/);
+    assert.match(snapZh.markdownSummary, /\*\*会话总消耗\*\*: 1\.1万/);
+
+    await service.updatePreferences({ unitSystem: 'intl' });
+    const snapIntl = await service.getSnapshot({ conversationId: convA, force: true });
+    assert.equal(snapIntl.preferences.unitSystem, 'intl');
+    assert.match(snapIntl.markdownSummary, /10\.5K/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

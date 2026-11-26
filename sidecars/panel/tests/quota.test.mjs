@@ -225,10 +225,13 @@ test('PanelService.getQuota 支持在线独立采集并在 LS 不可用时严格
   const dir = await mkdtemp(join(tmpdir(), 'tl-panel-quota-'));
   try {
     let online = true;
+    const forceCalls = [];
     const mockLsClient = {
-      async getQuotaSummary() {
+      async getQuotaSummary(opts = {}) {
+        forceCalls.push(Boolean(opts.force));
         if (!online) throw new Error('Language Server unavailable');
         return {
+          fetchedAt: '2026-11-25T04:00:00.000Z',
           description: 'Shared limits.',
           tier: { id: 'g1-pro-tier', name: 'Google AI Pro' },
           credits: { planName: 'Pro', promptAvailable: 500, promptMonthly: 50000, flowAvailable: 100, flowMonthly: 150000 },
@@ -259,6 +262,12 @@ test('PanelService.getQuota 支持在线独立采集并在 LS 不可用时严格
     assert.equal(onlineRes.available, true);
     assert.equal(onlineRes.groups.length, 1);
     assert.equal(onlineRes.groups[0].isActive, true);
+    assert.equal(onlineRes.updatedAt, '2026-11-25T04:00:00.000Z');
+
+    // 手动强制刷新必须透传 force: true 以穿透 LS 15s 缓存
+    const forcedRes = await service.getQuota({ model: 'Gemini 4 Hydrogen (High)', modelKey: 'gemini-4-hydrogen', force: true });
+    assert.equal(forcedRes.available, true);
+    assert.deepEqual(forceCalls, [false, true]);
 
     // 切换离线断连状态：即使磁盘已有刚写入的 quota-history.json，仍必须返回 available: false
     online = false;

@@ -994,8 +994,10 @@ export class LanguageServerClient {
           this.#modelCatalogAt = this.#nowFn();
         }
         const payload = buildQuotaPayload(quotaRes, userStatusRes);
+        const nowFetchedAt = this.#nowFn();
+        payload.fetchedAt = new Date(nowFetchedAt).toISOString();
         this.#quotaCache = payload;
-        this.#quotaAt = this.#nowFn();
+        this.#quotaAt = nowFetchedAt;
         return payload;
       })
       .finally(() => {

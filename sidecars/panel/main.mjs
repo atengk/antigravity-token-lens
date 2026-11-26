@@ -30,6 +30,7 @@ const MAX_SUBAGENT_FANOUT = 16;
 
 const STATIC_ASSETS = {
   '/styles.css': { file: 'styles.css', contentType: 'text/css; charset=utf-8' },
+  '/units.js': { file: 'units.cjs', contentType: 'application/javascript; charset=utf-8' },
   '/app.js': { file: 'app.js', contentType: 'application/javascript; charset=utf-8' },
 };
 
@@ -286,7 +287,10 @@ export class PanelService {
       const primary = computeMetricsFromTranscript(conversationId, local, preferences);
       const subIds = this.#collectLocalSubagentIds(local, conversationId);
       const subagentSummaries = await this.#loadLocalSubagents(subIds, preferences);
-      const snapshot = finalizeSnapshot(primary, subagentSummaries, { lang: preferences.lang });
+      const snapshot = finalizeSnapshot(primary, subagentSummaries, {
+        lang: preferences.lang,
+        unitSystem: preferences.unitSystem,
+      });
       return { ...snapshot, rpcError, etag: nextEtag, preferences, hostTheme };
     }
   }
@@ -378,6 +382,7 @@ export class PanelService {
       parentId: tm.parentConversationId || null,
       rootId: tm.rootConversationId || null,
       lang: preferences.lang,
+      unitSystem: preferences.unitSystem,
     });
 
     return { ...snapshot, etag: nextEtag };

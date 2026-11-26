@@ -5,6 +5,11 @@
  * @since 2026-11-16
  */
 
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { fmtCompact: formatCompactUnits } = require('./units.cjs');
+
 const MODEL_ALIASES = new Map([
   // Gemini 4 Neon
   ['model_placeholder_m532', { key: 'gemini-4-neon', display: 'Gemini 4 Neon (High)' }],
@@ -1100,10 +1105,14 @@ export function computeMetricsFromTranscript(conversationId, local, preferences,
  *
  * @param {object} primaryMetrics 主会话/当前聚焦会话指标
  * @param {object[]} subagentSummaries 关联子代理精简指标数组
- * @param {{ parentId?: string|null, rootId?: string|null, lang?: string }} [meta] 上下文层级与语言
+ * @param {{ parentId?: string|null, rootId?: string|null, lang?: string, unitSystem?: string }} [meta] 上下文层级、语言与展示单位制
  * @return {object}
  */
-export function finalizeSnapshot(primaryMetrics, subagentSummaries = [], { parentId = null, rootId = null, lang = 'zh-CN' } = {}) {
+export function finalizeSnapshot(
+  primaryMetrics,
+  subagentSummaries = [],
+  { parentId = null, rootId = null, lang = 'zh-CN', unitSystem = 'auto' } = {},
+) {
   const subTotals = emptyAccumulator();
   for (const sub of subagentSummaries) {
     addToAccumulator(subTotals, sub.totals || emptyAccumulator());
@@ -1130,16 +1139,8 @@ export function finalizeSnapshot(primaryMetrics, subagentSummaries = [], { paren
   };
 
   delete snapshot.mainTotals;
-  snapshot.markdownSummary = buildMarkdownSummary(snapshot, lang);
+  snapshot.markdownSummary = buildMarkdownSummary(snapshot, { lang, unitSystem });
   return snapshot;
-}
-
-function fmtCompact(n) {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-  return String(Math.round(n));
 }
 
 function fmtPct(ratio, isAlreadyPercent = false) {
@@ -1152,11 +1153,17 @@ function fmtPct(ratio, isAlreadyPercent = false) {
  * 生成可一键复制的轻量 Markdown 会话诊断摘要。
  *
  * @param {object} snapshot 完整快照对象
- * @param {string} [lang='zh-CN'] 语言代码
+ * @param {string|{ lang?: string, unitSystem?: string }} [langOrOpts='zh-CN'] 语言代码或格式化选项
  * @return {string}
  */
-export function buildMarkdownSummary(snapshot, lang = 'zh-CN') {
-  const isEn = lang === 'en';
+export function buildMarkdownSummary(snapshot, langOrOpts = 'zh-CN') {
+  const opts =
+    typeof langOrOpts === 'string'
+      ? { lang: langOrOpts, unitSystem: 'auto' }
+      : { lang: langOrOpts?.lang || 'zh-CN', unitSystem: langOrOpts?.unitSystem || 'auto' };
+  const isEn = opts.lang === 'en';
+  const fmtCtx = (n) => formatCompactUnits(n, { unitSystem: 'intl' });
+  const fmtStat = (n) => formatCompactUnits(n, opts);
   const c = snapshot.conversation || {};
   const ctx = snapshot.context || {};
   const tp = snapshot.throughput || {};
@@ -1168,14 +1175,14 @@ export function buildMarkdownSummary(snapshot, lang = 'zh-CN') {
   const lines = [
     `### Token Lens — ${c.title || c.id || ''}`,
     `- **${isEn ? 'Model' : '模型'}**: ${c.model || 'Unknown'} (${snapshot.source === 'rpc' ? 'RPC' : 'Transcript'})`,
-    `- **${isEn ? 'Context' : '上下文水位'}**: ${fmtCompact(ctx.usedTokens)} / ${fmtCompact(ctx.maxTokens)} (${fmtPct(ctx.usedPercent, true)})`,
+    `- **${isEn ? 'Context' : '上下文水位'}**: ${fmtCtx(ctx.usedTokens)} / ${fmtCtx(ctx.maxTokens)} (${fmtPct(ctx.usedPercent, true)})`,
     `- **${isEn ? 'Streaming Speed' : '流式速率'}**: ${tp.latestStreamingTps ? `${tp.latestStreamingTps.toFixed(1)} tok/s` : '—'} (Avg ${tp.avgStreamingTps ? `${tp.avgStreamingTps.toFixed(1)}` : '—'} / Peak ${tp.peakStreamingTps ? `${tp.peakStreamingTps.toFixed(1)}` : '—'} tok/s · Avg TTFT ${tm.avgTtftSec !== null && tm.avgTtftSec !== undefined ? `${tm.avgTtftSec.toFixed(2)}s` : '—'})`,
-    `- **${isEn ? 'Cache Hit' : '缓存命中率'}**: ${fmtPct(ch.cumulativeHitRate)} (${isEn ? 'Saved' : '已节省'} ${fmtCompact(ch.totalSavedTokens)} tok · ${ch.rebuildCount || 0} ${isEn ? 'rebuilds' : '次重建'})`,
-    `- **${isEn ? 'Session Total' : '会话总消耗'}**: ${fmtCompact(tot.grand?.totalTokens)} (${isEn ? 'Main' : '主会话'} ${fmtCompact(tot.main?.totalTokens)} · ${isEn ? 'Subagents' : '子代理'}(${tot.subagentCount || 0}) ${fmtCompact(tot.subagents?.totalTokens)}${retry.count > 0 ? ` · ${isEn ? 'Retries' : '重试'} ${retry.count} (+${fmtCompact(retry.totalTokens)})` : ''})`,
+    `- **${isEn ? 'Cache Hit' : '缓存命中率'}**: ${fmtPct(ch.cumulativeHitRate)} (${isEn ? 'Saved' : '已节省'} ${fmtStat(ch.totalSavedTokens)} tok · ${ch.rebuildCount || 0} ${isEn ? 'rebuilds' : '次重建'})`,
+    `- **${isEn ? 'Session Total' : '会话总消耗'}**: ${fmtStat(tot.grand?.totalTokens)} (${isEn ? 'Main' : '主会话'} ${fmtStat(tot.main?.totalTokens)} · ${isEn ? 'Subagents' : '子代理'}(${tot.subagentCount || 0}) ${fmtStat(tot.subagents?.totalTokens)}${retry.count > 0 ? ` · ${isEn ? 'Retries' : '重试'} ${retry.count} (+${fmtStat(retry.totalTokens)})` : ''})`,
   ];
 
   if (ctx.breakdown?.groups?.length) {
-    const parts = ctx.breakdown.groups.map((g) => `${g.name}: ${fmtCompact(g.tokens)} (${fmtPct(g.percent, true)})`);
+    const parts = ctx.breakdown.groups.map((g) => `${g.name}: ${fmtCtx(g.tokens)} (${fmtPct(g.percent, true)})`);
     lines.push(`- **${isEn ? 'Context Breakdown' : '上下文构成'}**: ${parts.join(' | ')}`);
   }
 

@@ -26,9 +26,13 @@ _Avoid_: 模型显示名、模型版本名
 剥离推理档位后缀（如 `High`、`Medium`、`Low`、`XHigh`）后的归一化模型家族标识（如 `gemini-4-hydrogen`、`gemini-4-neon`、`claude-sonnet-5.5`），用于跨档位复用参考上限与用户覆盖配置。
 _Avoid_: 完整模型 ID、档位名称
 
-**Token Unit（Token 计数单位 `K` / `M`）**:
-上下文水位与吞吐统计统一使用十进制 Token 计数单位（`1K = 1,000 tokens`，`1M = 1,000,000` 或模型公布的精确 Token 数），与文件/缓存体积的字节单位（`KB` / `KiB` / `MiB`）严格区分。
+**Token Unit（Token 计量与窗口单位 `K` / `M`）**:
+上下文水位、吞吐率与用量统计底层统一采用十进制 Token 计数基准（与文件/缓存字节单位 `KB` / `KiB` / `MiB` 严格区分）；其中上下文水位、构成明细、预算与单轮瞬时载荷固定以行业规格单位 `K` / `M` 展示。
 _Avoid_: KB、MB、512KB
+
+**Display Unit System（统计展示单位制）**:
+专用于会话累计消耗、缓存累计、周期用量账本及套餐积分上限等统计类数值的缩写呈现体系，分为中文大数单位制（`万` / `亿`）与国际十进制缩写制（`K` / `M` / `B`），不影响上下文窗口与单轮指标展示。
+_Avoid_: 换算系数、全盘覆盖上下文单位
 
 **Context Used（当前上下文占用）**:
 会话在当前时刻权威采信的上下文窗口占用 Token 数；已完成轮优先采用 `Measured Prompt Input`，生成中空档期回退到 `Host Pre-flight Estimate`。

@@ -19,7 +19,7 @@ English | [简体中文](./README.md)
   - Live usage bar with configurable warning (`70%`) and critical (`85%`) thresholds, custom per-model/per-chat limit overrides, and one-click `/compact` copy.
   - Compact 4-segment summary bar (System Prompt / Custom & MCP Base / Tools / Chat Messages), average per-turn growth, and estimated turns remaining before reaching the critical threshold.
 - **Account Quota & Burn-Rate Alerts**:
-  - Real-time `5h` and `weekly` quota group tracking with active-pool highlighting, subscription tier, Prompt/Flow credits, and model deprecation/upgrade notices.
+  - Real-time `5h` and `weekly` quota group tracking with active-pool highlighting, subscription tier, Prompt/Flow credits, model deprecation/upgrade notices, and dedicated manual force-refresh controls (bypassing cache with update timestamps).
   - Compares cycle time elapsed vs. quota consumed (Pacing Indicator) and computes window-gated `Quota Burn Rate` and depletion ETA alerts from bounded 7-day sparse samples (`quota-history.json`).
 - **Global Conversation Switcher & Concurrent Radar**:
   - Searchable header dropdown for switching across the 50 most recent conversations, with live indicators for concurrent background `RUNNING` sessions.
@@ -103,7 +103,7 @@ cd antigravity-token-lens
 ## Usage & Updating
 
 1. After installation, type **`/token-lens`** in any Antigravity chat and click the sidecar pill to open the **Token Lens** Aux Pane.
-2. Click the gear icon in the panel header to override context limits or adjust alert thresholds, or switch to the **Availability Alerts** tab (or click the top watchdog pill) to configure Webhook alert channels, test delivery, and inspect the latest `20` delivery logs.
+2. Click the gear icon in the panel header to override context limits, adjust alert thresholds, or choose **Stats Display Units** (`Follow Language`, Chinese `万 / 亿`, or International `K / M / B`; context sizing & per-turn details stay in `K / M` while cumulative/periodic stats follow your selected unit system), or switch to the **Availability Alerts** tab (or click the top watchdog pill) to configure Webhook alert channels, test delivery, and inspect the latest `20` delivery logs.
    - **Activation note**: Open Token Lens once after restarting Antigravity to wake the background watchdog (it keeps running even when you switch tabs).
 3. Click `EN` / `中文` to toggle UI language; JSON snapshot exports automatically omit watchdog channel configs.
 4. To update, run `git pull --ff-only` inside `~/.gemini/config/plugins/token-lens` (or re-run the installer script) and toggle/reload the plugin on the `Customizations` page.

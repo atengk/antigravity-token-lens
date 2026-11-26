@@ -571,9 +571,14 @@ export function computeQuotaSnapshot({ quotaPayload, historyByBucket = {}, curre
     isActive: idx === activeGroupIndex,
   }));
 
+  const updatedAt =
+    typeof quotaPayload.fetchedAt === 'string' && quotaPayload.fetchedAt
+      ? quotaPayload.fetchedAt
+      : new Date(nowMs).toISOString();
+
   return {
     available: true,
-    updatedAt: new Date(nowMs).toISOString(),
+    updatedAt,
     description: quotaPayload.description || null,
     tier: quotaPayload.tier || null,
     credits: quotaPayload.credits || null,

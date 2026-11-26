@@ -18,6 +18,10 @@
       resetLimit: '恢复默认',
       warnAtLabel: '注意阈值 (%)',
       critAtLabel: '预警阈值 (%)',
+      unitSystemLabel: '统计展示单位制',
+      unitSystemAuto: '跟随语言（中文用万/亿，英文用 K/M/B）',
+      unitSystemZh: '中文大数 (万 / 亿)',
+      unitSystemIntl: '国际缩写 (K / M / B)',
       saveSettings: '保存配置',
       emptyTitle: '等待会话数据',
       emptyDesc: '在对话发送首条消息后，上下文水位、流式速率与缓存指标将实时显示在此处。',
@@ -132,6 +136,13 @@
       quotaCreditsFlow: 'Flow 积分',
       quotaScopeNote: '注：配额消耗为账号级全局实测值（包含并发对话窗口与子代理调用），不同模型按成本比例扣减。',
       quotaOtherModels: '其他套餐限制模型',
+      quotaRefreshBtn: '刷新',
+      quotaRefreshTitle: '立即刷新账号配额（穿透缓存）',
+      quotaRefreshing: '刷新中...',
+      quotaUpdatedAt: '更新于 {time}',
+      quotaRefreshFailed: '配额刷新失败，请确认宿主在线后重试',
+      quotaReadyHint: '账号实时配额',
+      quotaUnavailableHint: '仅在线可用（点击右侧重试）',
       convFilterPlaceholder: '搜索历史会话标题...',
       convBackRoot: '← 回到当前宿主会话',
       convNoMatch: '未找到匹配会话',
@@ -219,6 +230,10 @@
       resetLimit: 'Reset',
       warnAtLabel: 'Warn Threshold (%)',
       critAtLabel: 'Critical Threshold (%)',
+      unitSystemLabel: 'Stats Display Units',
+      unitSystemAuto: 'Follow Language (万/亿 in ZH, K/M/B in EN)',
+      unitSystemZh: 'Chinese (万 / 亿)',
+      unitSystemIntl: 'International (K / M / B)',
       saveSettings: 'Save',
       emptyTitle: 'Waiting for Conversation Data',
       emptyDesc: 'Send a prompt to start tracking live context window usage, throughput, and cache hits.',
@@ -333,6 +348,13 @@
       quotaCreditsFlow: 'Flow Credits',
       quotaScopeNote: 'Account-wide measured quota (includes concurrent chats & subagents); consumed proportionally to token cost.',
       quotaOtherModels: 'Other tier-gated models',
+      quotaRefreshBtn: 'Refresh',
+      quotaRefreshTitle: 'Refresh account quota now',
+      quotaRefreshing: 'Refreshing...',
+      quotaUpdatedAt: 'Updated {time}',
+      quotaRefreshFailed: 'Quota refresh failed; ensure host is online',
+      quotaReadyHint: 'Live Account Quota',
+      quotaUnavailableHint: 'Online mode only (click to retry)',
       convFilterPlaceholder: 'Filter conversations...',
       convBackRoot: '← Return to host focus conversation',
       convNoMatch: 'No matching conversations',
@@ -415,6 +437,7 @@
 
   const state = {
     lang: 'zh-CN',
+    unitSystem: 'auto',
     activeTab: 'breakdown',
     turnFilter: 'all',
     expandedGroups: new Set(),
@@ -443,6 +466,7 @@
     lastAutoResetRefreshAt: 0,
     lastClockTickSec: 0,
     preferences: null,
+    quotaRefreshError: null,
     watchdogStatus: null,
     watchdogChannelsDraft: [],
     editingChannelId: null,
@@ -480,17 +504,34 @@
       .replace(/'/g, '&#39;');
   }
 
-  function fmtCompact(n) {
-    if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
-    if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-    if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-    return String(Math.round(n));
+  const Units = window.TokenLensUnits;
+
+  function getStatUnitOpts() {
+    return { lang: state.lang, unitSystem: state.unitSystem };
+  }
+
+  function fmtCtxCompact(n) {
+    return Units?.fmtCompact(n, { unitSystem: 'intl' }) ?? '—';
+  }
+
+  function fmtCtxTitle(n) {
+    return Units?.fmtCompactTitle(n, { unitSystem: 'intl', includeContrast: false }) ?? '';
+  }
+
+  function fmtStatCompact(n) {
+    return Units?.fmtCompact(n, getStatUnitOpts()) ?? '—';
+  }
+
+  function fmtStatTitle(n) {
+    return Units?.fmtCompactTitle(n, getStatUnitOpts()) ?? '';
+  }
+
+  function fmtCreditTitle(n) {
+    return Units?.fmtCompactTitle(n, { ...getStatUnitOpts(), unitLabel: '' }) ?? '';
   }
 
   function fmtInt(n) {
-    if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
-    return Math.round(n).toLocaleString('en-US');
+    return Units?.fmtInt(n) ?? '—';
   }
 
   function fmtRate(n, estimated = false) {
@@ -545,6 +586,27 @@
     $('btn-reset-limit').textContent = t('resetLimit');
     $('lbl-warn-at').textContent = t('warnAtLabel');
     $('lbl-crit-at').textContent = t('critAtLabel');
+    $('lbl-unit-system').textContent = t('unitSystemLabel');
+    const unitSel = $('input-unit-system');
+    if (unitSel && unitSel.options.length >= 3) {
+      unitSel.options[0].textContent = t('unitSystemAuto');
+      unitSel.options[1].textContent = t('unitSystemZh');
+      unitSel.options[2].textContent = t('unitSystemIntl');
+      unitSel.value = state.unitSystem || 'auto';
+    }
+    for (const btn of document.querySelectorAll('.tl-chip-btn')) {
+      const limit = Number(btn.dataset.limit);
+      if (Number.isFinite(limit) && limit > 0) {
+        const zhHint = Units.fmtCompact(limit, { unitSystem: 'zh' });
+        const showZh = state.lang !== 'en' || state.unitSystem === 'zh';
+        btn.title = showZh ? `${fmtInt(limit)} tokens · ${zhHint}` : `${fmtInt(limit)} tokens`;
+      }
+    }
+    const stripRefreshBtn = $('btn-quota-strip-refresh');
+    if (stripRefreshBtn) {
+      stripRefreshBtn.title = t('quotaRefreshTitle');
+      stripRefreshBtn.setAttribute('aria-label', t('quotaRefreshTitle'));
+    }
     $('btn-save-settings').textContent = t('saveSettings');
     $('btn-settings-tab-context').textContent = t('settingsTabContext');
     $('btn-settings-tab-watchdog').textContent = t('settingsTabWatchdog');
@@ -596,7 +658,11 @@
       else if (tab.dataset.tab === 'quota') tab.textContent = t('tabQuota');
       else if (tab.dataset.tab === 'stats') tab.textContent = t('tabStats');
     }
-    if (state.quota) renderQuotaUi();
+    if (state.snapshot && !state.snapshot.empty && !state.snapshot.notFound) {
+      renderSnapshot(state.snapshot);
+    } else if (state.quota) {
+      renderQuotaUi();
+    }
     if (state.conversations) renderConversationsUi();
     if (state.stats) renderStatsUi();
     if (state.watchdogStatus) {
@@ -642,7 +708,7 @@
     titleEl.title = c.id ? `${title} (${c.id})` : title;
   }
 
-  async function refreshSnapshot(force = false) {
+  async function refreshSnapshot(force = false, { skipQuota = false } = {}) {
     if (state.isFetching) return;
     state.isFetching = true;
     try {
@@ -658,8 +724,16 @@
       if (data.preferences) {
         state.preferences = data.preferences;
       }
+      let prefUiChanged = false;
       if (data.preferences?.lang && data.preferences.lang !== state.lang) {
         state.lang = data.preferences.lang;
+        prefUiChanged = true;
+      }
+      if (data.preferences?.unitSystem && data.preferences.unitSystem !== state.unitSystem) {
+        state.unitSystem = data.preferences.unitSystem;
+        prefUiChanged = true;
+      }
+      if (prefUiChanged) {
         localizeStaticUi();
       }
       applyTheme(data.hostTheme?.mode);
@@ -677,7 +751,7 @@
       renderSnapshot(data);
 
       // 一轮生成刚结束、强制刷新或切换至离线日志模式时，同步刷新配额状态
-      if ((data.source === 'transcript' && state.quota?.available) || finishedTurn || force) {
+      if (!skipQuota && ((data.source === 'transcript' && state.quota?.available) || finishedTurn || force)) {
         void refreshQuota(true);
       }
     } catch {
@@ -696,12 +770,34 @@
     state.pollTimer = setTimeout(() => void refreshSnapshot(false), delay);
   }
 
+  function syncQuotaRefreshButtons() {
+    const spinning = state.isQuotaFetching;
+    for (const btn of document.querySelectorAll('.tl-quota-refresh-btn')) {
+      btn.classList.toggle('is-spinning', spinning);
+      btn.disabled = spinning;
+      if (btn.id !== 'btn-quota-strip-refresh') {
+        const lbl = btn.querySelector('.tl-quota-refresh-label');
+        if (lbl) lbl.textContent = spinning ? t('quotaRefreshing') : t('quotaRefreshBtn');
+      }
+    }
+  }
+
+  function manualRefreshQuota() {
+    state.quotaRefreshError = null;
+    syncQuotaRefreshButtons();
+    if (state.snapshot?.source === 'transcript') {
+      void refreshSnapshot(true, { skipQuota: true });
+    }
+    void refreshQuota(true);
+  }
+
   async function refreshQuota(force = false) {
     if (state.isQuotaFetching) {
       if (force) state.pendingQuotaForce = true;
       return;
     }
     state.isQuotaFetching = true;
+    syncQuotaRefreshButtons();
     try {
       const params = new URLSearchParams();
       const conv = state.snapshot?.conversation;
@@ -712,14 +808,22 @@
       const res = await apiFetch(`/api/quota?${params.toString()}`);
       if (!res.ok) {
         console.warn(`[token-lens] Quota endpoint returned HTTP ${res.status}`);
+        state.quotaRefreshError = t('quotaRefreshFailed');
         state.quota = { available: false, reason: 'http_error' };
         renderQuotaUi();
         return;
       }
-      state.quota = await res.json();
+      const nextQuota = await res.json();
+      if (nextQuota?.available) {
+        state.quotaRefreshError = null;
+      } else if (force) {
+        state.quotaRefreshError = nextQuota?.error || t('quotaRefreshFailed');
+      }
+      state.quota = nextQuota;
       renderQuotaUi();
     } catch (err) {
       console.warn('[token-lens] Quota request failed:', err);
+      state.quotaRefreshError = t('quotaRefreshFailed');
       state.quota = { available: false, reason: 'network_error' };
       renderQuotaUi();
     } finally {
@@ -728,6 +832,7 @@
         state.pendingQuotaForce = false;
         void refreshQuota(true);
       } else {
+        syncQuotaRefreshButtons();
         scheduleNextQuotaPoll();
       }
     }
@@ -948,9 +1053,9 @@
     const summaryGrid = document.createElement('div');
     summaryGrid.className = 'tl-totals-grid';
     summaryGrid.innerHTML = [
-      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsTotal'))}</span><span class="tl-cell-num tl-num-accent">${escHtml(fmtCompact(sel.totalTokens))}</span><span class="tl-diag-sub">${escHtml(fmtInt(sel.turns))} ${escHtml(t('statsTurns'))}</span></div>`,
-      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsUncached'))} / ${escHtml(t('statsOutput'))}</span><span class="tl-cell-num">${escHtml(fmtCompact(sel.uncachedInput))}</span><span class="tl-diag-sub">${escHtml(t('statsOutput'))} ${escHtml(fmtCompact(sel.output))}</span></div>`,
-      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsCacheHit'))}</span><span class="tl-cell-num">${escHtml(fmtPct(sel.cacheHitRate))}</span><span class="tl-diag-sub">${escHtml(t('statsSaved'))} ${escHtml(fmtCompact(sel.cacheRead))}</span></div>`,
+      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsTotal'))}</span><span class="tl-cell-num tl-num-accent" title="${escHtml(fmtStatTitle(sel.totalTokens))}">${escHtml(fmtStatCompact(sel.totalTokens))}</span><span class="tl-diag-sub">${escHtml(fmtInt(sel.turns))} ${escHtml(t('statsTurns'))}</span></div>`,
+      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsUncached'))} / ${escHtml(t('statsOutput'))}</span><span class="tl-cell-num" title="${escHtml(fmtStatTitle(sel.uncachedInput))}">${escHtml(fmtStatCompact(sel.uncachedInput))}</span><span class="tl-diag-sub" title="${escHtml(fmtStatTitle(sel.output))}">${escHtml(t('statsOutput'))} ${escHtml(fmtStatCompact(sel.output))}</span></div>`,
+      `<div class="tl-total-cell"><span class="tl-cell-label">${escHtml(t('statsCacheHit'))}</span><span class="tl-cell-num">${escHtml(fmtPct(sel.cacheHitRate))}</span><span class="tl-diag-sub" title="${escHtml(fmtStatTitle(sel.cacheRead))}">${escHtml(t('statsSaved'))} ${escHtml(fmtStatCompact(sel.cacheRead))}</span></div>`,
     ].join('');
     wrap.appendChild(summaryGrid);
 
@@ -967,7 +1072,7 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = `tl-stats-bar-btn${s.key === stats.selectedKey ? ' is-active' : ''}`;
-        btn.title = `${s.key}: ${fmtInt(s.totalTokens)} tok (${s.turns} ${t('statsTurns')})`;
+        btn.title = `${s.key}: ${fmtStatCompact(s.totalTokens)} (${fmtStatTitle(s.totalTokens)} · ${s.turns} ${t('statsTurns')})`;
         btn.addEventListener('click', () => {
           state.statsTargetKey = s.key;
           void refreshStats(false);
@@ -1017,7 +1122,8 @@
         left.textContent = m.model;
         const right = document.createElement('span');
         right.className = 'tl-bk-val';
-        right.textContent = `${fmtCompact(m.totalTokens)} (${m.sharePct.toFixed(0)}%)`;
+        right.textContent = `${fmtStatCompact(m.totalTokens)} (${m.sharePct.toFixed(0)}%)`;
+        right.title = fmtStatTitle(m.totalTokens);
         row.append(left, right);
 
         const track = document.createElement('div');
@@ -1061,7 +1167,8 @@
 
         const right = document.createElement('span');
         right.className = 'tl-bk-val';
-        right.textContent = `${fmtCompact(c.totalTokens)} · ${fmtPct(c.cacheHitRate)}`;
+        right.textContent = `${fmtStatCompact(c.totalTokens)} · ${fmtPct(c.cacheHitRate)}`;
+        right.title = fmtStatTitle(c.totalTokens);
         btn.append(left, right);
         cList.appendChild(btn);
       }
@@ -1176,8 +1283,10 @@
     updateRunningTimer();
 
     // 1. 上下文水位
-    $('ctx-used').textContent = fmtCompact(ctx.usedTokens);
-    $('ctx-max').textContent = fmtCompact(ctx.maxTokens);
+    $('ctx-used').textContent = fmtCtxCompact(ctx.usedTokens);
+    $('ctx-used').title = fmtCtxTitle(ctx.usedTokens);
+    $('ctx-max').textContent = fmtCtxCompact(ctx.maxTokens);
+    $('ctx-max').title = fmtCtxTitle(ctx.maxTokens);
     const pctEl = $('ctx-pct');
     pctEl.textContent = fmtPct(ctx.usedPercent, true);
     pctEl.className = `tl-pct-pill ${ctx.alertLevel === 'critical' ? 'is-crit' : ctx.alertLevel === 'warn' ? 'is-warn' : ''}`;
@@ -1190,13 +1299,17 @@
     $('ctx-warn-mark').style.left = `${prefs.warnAt ?? 70}%`;
     $('ctx-crit-mark').style.left = `${prefs.criticalAt ?? 85}%`;
 
-    const remBase = ctx.remainingTokens !== null ? `${t('remaining')}: ${fmtCompact(ctx.remainingTokens)}` : `${t('remaining')}: —`;
+    const remBase = ctx.remainingTokens !== null ? `${t('remaining')}: ${fmtCtxCompact(ctx.remainingTokens)}` : `${t('remaining')}: —`;
     const growth = ctx.growth || {};
     const growthNote =
       growth.avgPerTurn > 0
-        ? ` · +${fmtCompact(growth.avgPerTurn)}/${t('turnsUnit')}${growth.estTurnsToCritical !== null ? ` (${t('estTurnsLeft')} ${growth.estTurnsToCritical} ${t('turnsUnit')})` : ''}`
+        ? ` · +${fmtCtxCompact(growth.avgPerTurn)}/${t('turnsUnit')}${growth.estTurnsToCritical !== null ? ` (${t('estTurnsLeft')} ${growth.estTurnsToCritical} ${t('turnsUnit')})` : ''}`
         : '';
     $('ctx-remaining').textContent = `${remBase}${growthNote}`;
+    const remTitleParts = [];
+    if (ctx.remainingTokens !== null) remTitleParts.push(`${t('remaining')}: ${fmtCtxTitle(ctx.remainingTokens)}`);
+    if (growth.avgPerTurn > 0) remTitleParts.push(`${t('perTurnGrowth')}: +${fmtCtxTitle(growth.avgPerTurn)}`);
+    $('ctx-remaining').title = remTitleParts.join(' · ');
     const srcMap = { override: 'srcOverride', host: 'srcHost', reference: 'srcRef', unknown: 'srcUnknown' };
     const usedMap = { measured: 'usedMeasured', preflight: 'usedPreflight' };
     const usedPrefix = usedMap[ctx.usedSource] ? `${t(usedMap[ctx.usedSource])} · ` : '';
@@ -1219,9 +1332,14 @@
     // 3. 缓存卡片
     $('cache-main').textContent = fmtPct(ch.cumulativeHitRate);
     $('cache-latest').textContent = `${t('latestHit')} ${fmtPct(ch.latestHitRate)}`;
-    $('cache-saved').textContent = `${t('savedPrefix')} ${fmtCompact(ch.totalSavedTokens)} tok`;
-    const writeText = ch.totalCacheWrite > 0 ? ` · ${t('writePrefix')} ${fmtCompact(ch.totalCacheWrite)}` : '';
-    $('cache-detail').textContent = `${t('uncachedPrefix')} ${fmtCompact(ch.totalUncachedInput)}${writeText}`;
+    $('cache-saved').textContent = `${t('savedPrefix')} ${fmtStatCompact(ch.totalSavedTokens)} tok`;
+    $('cache-saved').title = fmtStatTitle(ch.totalSavedTokens);
+    const writeText = ch.totalCacheWrite > 0 ? ` · ${t('writePrefix')} ${fmtStatCompact(ch.totalCacheWrite)}` : '';
+    $('cache-detail').textContent = `${t('uncachedPrefix')} ${fmtStatCompact(ch.totalUncachedInput)}${writeText}`;
+    const cacheDetailTitles = [];
+    if (typeof ch.totalUncachedInput === 'number') cacheDetailTitles.push(`${t('uncachedPrefix')} ${fmtStatTitle(ch.totalUncachedInput)}`);
+    if (ch.totalCacheWrite > 0) cacheDetailTitles.push(`${t('writePrefix')} ${fmtStatTitle(ch.totalCacheWrite)}`);
+    $('cache-detail').title = cacheDetailTitles.join(' · ');
     const hitPct = ch.cumulativeHitRate !== null ? Math.min(100, Math.max(0, ch.cumulativeHitRate * 100)) : 0;
     $('cache-bar').style.width = `${hitPct.toFixed(1)}%`;
     renderCacheSparkline($('cache-sparkline'), ch.series || []);
@@ -1236,11 +1354,19 @@
 
     // 4. 累计消耗与耗时分布
     $('lbl-tot-sub').textContent = `${t('totSub')} (${tot.subagentCount || 0})`;
-    $('tot-main-val').textContent = fmtCompact(tot.main?.totalTokens);
-    $('tot-sub-val').textContent = fmtCompact(tot.subagents?.totalTokens);
-    $('tot-grand-val').textContent = fmtCompact(tot.grand?.totalTokens);
+    $('tot-main-val').textContent = fmtStatCompact(tot.main?.totalTokens);
+    $('tot-main-val').title = fmtStatTitle(tot.main?.totalTokens);
+    $('tot-sub-val').textContent = fmtStatCompact(tot.subagents?.totalTokens);
+    $('tot-sub-val').title = fmtStatTitle(tot.subagents?.totalTokens);
+    $('tot-grand-val').textContent = fmtStatCompact(tot.grand?.totalTokens);
+    $('tot-grand-val').title = fmtStatTitle(tot.grand?.totalTokens);
     $('totals-grand-pill').textContent = `${fmtInt(tot.grand?.totalTokens)} tok`;
-    $('tot-breakdown-line').textContent = `${t('uncachedPrefix')} ${fmtCompact(tot.grand?.uncachedInput)} · Cache ${fmtCompact(tot.grand?.cacheRead)} · Out ${fmtCompact(tot.grand?.output)}`;
+    $('tot-breakdown-line').textContent = `${t('uncachedPrefix')} ${fmtStatCompact(tot.grand?.uncachedInput)} · Cache ${fmtStatCompact(tot.grand?.cacheRead)} · Out ${fmtStatCompact(tot.grand?.output)}`;
+    $('tot-breakdown-line').title = [
+      `${t('uncachedPrefix')}: ${fmtStatTitle(tot.grand?.uncachedInput)}`,
+      `Cache: ${fmtStatTitle(tot.grand?.cacheRead)}`,
+      `Out: ${fmtStatTitle(tot.grand?.output)}`,
+    ].join(' · ');
 
     const tm = snap.timing || {};
     const retry = snap.diagnostics?.retry || {};
@@ -1251,13 +1377,15 @@
       timingParts.push(`${streamLbl} ${fmtSec(tm.totalStreamingSec)}`);
     }
     if (tm.totalToolSec > 0) timingParts.push(`${t('timingTool')} ${fmtSec(tm.totalToolSec)}`);
-    if (retry.count > 0) timingParts.push(`${t('retryTag')} ×${retry.count} (+${fmtCompact(retry.totalTokens)})`);
+    if (retry.count > 0) timingParts.push(`${t('retryTag')} ×${retry.count} (+${fmtStatCompact(retry.totalTokens)})`);
     const timingEl = $('tot-timing-line');
     if (timingParts.length > 0) {
       timingEl.classList.remove('hidden');
       timingEl.textContent = `⏱ ${timingParts.join(' · ')}`;
+      timingEl.title = retry.count > 0 ? `${t('retryTag')}: +${fmtStatTitle(retry.totalTokens)}` : '';
     } else {
       timingEl.classList.add('hidden');
+      timingEl.title = '';
     }
 
     // 5. 下钻 Tabs
@@ -1421,14 +1549,16 @@
     credits.className = 'tl-quota-credits';
     if (quota.credits?.promptAvailable !== null && quota.credits?.promptAvailable !== undefined) {
       const p = document.createElement('span');
-      const cap = quota.credits.promptMonthly ? `/${fmtCompact(quota.credits.promptMonthly)}` : '';
+      const cap = quota.credits.promptMonthly ? `/${fmtStatCompact(quota.credits.promptMonthly)}` : '';
       p.textContent = `${t('quotaCreditsPrompt')}: ${fmtInt(quota.credits.promptAvailable)}${cap}`;
+      if (quota.credits.promptMonthly) p.title = fmtCreditTitle(quota.credits.promptMonthly);
       credits.appendChild(p);
     }
     if (quota.credits?.flowAvailable !== null && quota.credits?.flowAvailable !== undefined) {
       const f = document.createElement('span');
-      const cap = quota.credits.flowMonthly ? `/${fmtCompact(quota.credits.flowMonthly)}` : '';
+      const cap = quota.credits.flowMonthly ? `/${fmtStatCompact(quota.credits.flowMonthly)}` : '';
       f.textContent = `${t('quotaCreditsFlow')}: ${fmtInt(quota.credits.flowAvailable)}${cap}`;
+      if (quota.credits.flowMonthly) f.title = fmtCreditTitle(quota.credits.flowMonthly);
       credits.appendChild(f);
     }
     bar.append(tierBadge, credits);
@@ -1590,18 +1720,59 @@
     return box;
   }
 
+  function buildQuotaToolbar(quota, isOfflineTranscript) {
+    const bar = document.createElement('div');
+    bar.className = 'tl-quota-toolbar';
+
+    const meta = document.createElement('span');
+    meta.className = 'tl-quota-updated';
+    if (quota?.available && !isOfflineTranscript && quota.updatedAt) {
+      meta.textContent = t('quotaUpdatedAt').replace('{time}', fmtClockTime(quota.updatedAt));
+    } else if (state.quotaRefreshError) {
+      meta.classList.add('is-err');
+      meta.textContent = state.quotaRefreshError;
+    } else if (!quota?.available || isOfflineTranscript) {
+      meta.textContent = t('quotaUnavailableHint');
+    } else {
+      meta.textContent = t('quotaReadyHint');
+    }
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `tl-btn tl-btn-mini tl-quota-refresh-btn${state.isQuotaFetching ? ' is-spinning' : ''}`;
+    btn.disabled = state.isQuotaFetching;
+    btn.title = t('quotaRefreshTitle');
+    btn.setAttribute('aria-label', t('quotaRefreshTitle'));
+    btn.addEventListener('click', () => manualRefreshQuota());
+
+    const glyph = document.createElement('span');
+    glyph.className = 'tl-refresh-glyph';
+    glyph.setAttribute('aria-hidden', 'true');
+    glyph.textContent = '↻';
+
+    const lbl = document.createElement('span');
+    lbl.className = 'tl-quota-refresh-label';
+    lbl.textContent = state.isQuotaFetching ? t('quotaRefreshing') : t('quotaRefreshBtn');
+
+    btn.append(glyph, lbl);
+    bar.append(meta, btn);
+    return bar;
+  }
+
   function renderQuotaTab(container, quota, isOfflineTranscript) {
     container.replaceChildren();
+    const wrap = document.createElement('div');
+    wrap.className = 'tl-quota-pane';
+    wrap.appendChild(buildQuotaToolbar(quota, isOfflineTranscript));
+
     if (isOfflineTranscript || !quota || !quota.available) {
       const msg = document.createElement('div');
       msg.className = 'tl-muted';
       msg.textContent = t('quotaOffline');
-      container.appendChild(msg);
+      wrap.appendChild(msg);
+      container.appendChild(wrap);
       return;
     }
-
-    const wrap = document.createElement('div');
-    wrap.className = 'tl-quota-pane';
 
     const accountBar = renderQuotaAccountBar(quota);
     if (accountBar) wrap.appendChild(accountBar);
@@ -1661,7 +1832,7 @@
 
     const isEmptyView = !$('empty-state').classList.contains('hidden');
     const standalone = $('empty-quota-card');
-    if (isEmptyView && state.emptyQuotaOpen && state.quota?.available) {
+    if (isEmptyView && state.emptyQuotaOpen && (state.quota || state.quotaRefreshError)) {
       standalone.classList.remove('hidden');
       renderQuotaTab(standalone, state.quota, false);
     } else {
@@ -1732,7 +1903,7 @@
       slot.tokens += g.tokens || 0;
       slot.percent += g.percent || 0;
       if (targetKey === 'custom' && (g.tokens || 0) > 0) {
-        slot.details.push(`${detailNames[g.key] || g.name} ${fmtCompact(g.tokens)}`);
+        slot.details.push(`${detailNames[g.key] || g.name} ${fmtCtxCompact(g.tokens)}`);
       }
     }
 
@@ -1746,11 +1917,11 @@
 
       const item = document.createElement('span');
       item.className = 'tl-legend-item';
-      if (segInfo.details.length) item.title = segInfo.details.join(' · ');
+      item.title = segInfo.details.length ? `${fmtCtxTitle(segInfo.tokens)} (${segInfo.details.join(' · ')})` : fmtCtxTitle(segInfo.tokens);
       const dot = document.createElement('span');
       dot.className = `tl-legend-dot ${segInfo.color}`;
       const txt = document.createElement('span');
-      txt.textContent = `${segInfo.label} ${fmtCompact(segInfo.tokens)} (${segInfo.percent.toFixed(0)}%)`;
+      txt.textContent = `${segInfo.label} ${fmtCtxCompact(segInfo.tokens)} (${segInfo.percent.toFixed(0)}%)`;
       item.append(dot, txt);
       legend.appendChild(item);
     }
@@ -1780,9 +1951,13 @@
 
     const thinkInfo =
       tp.latestThinkingTokens !== null && tp.latestOutputTokens !== null
-        ? ` · ${t('thinkingLabel')} ${fmtCompact(tp.latestThinkingTokens)}/${fmtCompact(tp.latestOutputTokens)}`
+        ? ` · ${t('thinkingLabel')} ${fmtCtxCompact(tp.latestThinkingTokens)}/${fmtCtxCompact(tp.latestOutputTokens)}`
         : '';
     $('tp-sub-line2').textContent = `${t('avgLabel')} ${fmtRate(tp.avgStreamingTps, estimated)} · ${t('peakLabel')} ${fmtRate(tp.peakStreamingTps, estimated)}${thinkInfo}`;
+    $('tp-sub-line2').title =
+      tp.latestThinkingTokens !== null && tp.latestOutputTokens !== null
+        ? `${t('thinkingLabel')}: ${fmtCtxTitle(tp.latestThinkingTokens)} / Output: ${fmtCtxTitle(tp.latestOutputTokens)}`
+        : '';
 
     renderSparkline($('tp-sparkline'), tp.series || [], isTtft ? 'ttftSec' : 'streamingTps');
   }
@@ -1878,7 +2053,7 @@
       rect.setAttribute('fill', fill);
       const title = document.createElementNS(svgNS, 'title');
       const rebuiltNote = step.cacheRebuilt ? ` · ${t('turnRebuilt')}` : '';
-      title.textContent = `#${step.stepIndex}: ${v !== null ? `${(v * 100).toFixed(1)}%` : '—'} (Cache ${fmtCompact(step.cacheReadTokens)} / In ${fmtCompact(step.inputTokens)})${rebuiltNote}`;
+      title.textContent = `#${step.stepIndex}: ${v !== null ? `${(v * 100).toFixed(1)}%` : '—'} (Cache ${fmtCtxCompact(step.cacheReadTokens)} / In ${fmtCtxCompact(step.inputTokens)})${rebuiltNote}`;
       rect.appendChild(title);
       svg.appendChild(rect);
     });
@@ -1889,7 +2064,7 @@
   function formatSignedDelta(delta) {
     if (typeof delta !== 'number' || !Number.isFinite(delta) || delta === 0) return null;
     const sign = delta > 0 ? '+' : '-';
-    return `${sign}${fmtCompact(Math.abs(delta))}`;
+    return `${sign}${fmtCtxCompact(Math.abs(delta))}`;
   }
 
   function renderBreakdownTab(breakdown, estimationDelta = null) {
@@ -1906,8 +2081,9 @@
     const deltaStr = formatSignedDelta(estimationDelta);
     const note = document.createElement('div');
     note.className = 'tl-bk-note tl-muted';
-    const baseText = `${t('breakdownPreflightPrefix')} (${fmtCompact(breakdown.totalTokens)})`;
+    const baseText = `${t('breakdownPreflightPrefix')} (${fmtCtxCompact(breakdown.totalTokens)})`;
     note.textContent = deltaStr ? `${baseText} · ${t('breakdownDeltaPrefix')} ${deltaStr}` : baseText;
+    note.title = fmtCtxTitle(breakdown.totalTokens);
     pane.appendChild(note);
 
     if (breakdown.topMessages?.length) {
@@ -1931,14 +2107,15 @@
         buildBreakdownGroupCard(
           g.key,
           t(labelKey[g.key] || 'groupOther') || g.name,
-          `${fmtCompact(g.tokens)} (${g.percent.toFixed(1)}%)`,
+          `${fmtCtxCompact(g.tokens)} (${g.percent.toFixed(1)}%)`,
           g.items || [],
+          g.tokens,
         ),
       );
     }
   }
 
-  function buildBreakdownGroupCard(groupId, title, rightText, items) {
+  function buildBreakdownGroupCard(groupId, title, rightText, items, groupTokens = null) {
     const box = document.createElement('div');
     box.className = 'tl-bk-group';
     const head = document.createElement('div');
@@ -1948,6 +2125,7 @@
     const r = document.createElement('span');
     r.className = 'tl-bk-val';
     r.textContent = rightText;
+    if (typeof groupTokens === 'number') r.title = fmtCtxTitle(groupTokens);
     head.append(l, r);
 
     const list = document.createElement('div');
@@ -1969,7 +2147,8 @@
       name.title = it.label && it.label !== it.name ? `${it.label}\n${it.name}` : it.name;
       const val = document.createElement('span');
       val.className = 'tl-bk-val';
-      val.textContent = `${fmtCompact(it.tokens)} (${it.percent.toFixed(1)}%)`;
+      val.textContent = `${fmtCtxCompact(it.tokens)} (${it.percent.toFixed(1)}%)`;
+      val.title = fmtCtxTitle(it.tokens);
       row.append(name, val);
       wrap.appendChild(row);
 
@@ -2099,19 +2278,20 @@
       stats.className = 'tl-turn-stats';
       const outDetail =
         turn.thinkingTokens > 0
-          ? `${fmtCompact(turn.outputTokens)} (${t('thinkingLabel')} ${fmtCompact(turn.thinkingTokens)} + ${t('responseLabel')} ${fmtCompact(turn.responseTokens)})`
-          : fmtCompact(turn.outputTokens);
+          ? `${fmtCtxCompact(turn.outputTokens)} (${t('thinkingLabel')} ${fmtCtxCompact(turn.thinkingTokens)} + ${t('responseLabel')} ${fmtCtxCompact(turn.responseTokens)})`
+          : fmtCtxCompact(turn.outputTokens);
 
       const timingText =
         turn.estimatedSpeed && turn.ttftSec === null
           ? `${t('turnElapsedLabel')} ${fmtSec(turn.streamingSec)}`
           : `TTFT ${fmtSec(turn.ttftSec)} / ${fmtSec(turn.streamingSec)}`;
 
+      const exactTokTitle = `In ${fmtInt(turn.inputTokens)} · Cache ${fmtInt(turn.cacheReadTokens)} · Out ${fmtInt(turn.outputTokens)}`;
       stats.innerHTML = [
         `<span>⚡ ${fmtRate(turn.streamingTps, turn.estimatedSpeed)} tok/s</span>`,
         `<span>⏱ ${timingText}</span>`,
         `<span>🧊 ${fmtPct(turn.cacheHitRate)}</span>`,
-        `<span>In ${fmtCompact(turn.inputTokens)} · Cache ${fmtCompact(turn.cacheReadTokens)} · Out ${escHtml(outDetail)}</span>`,
+        `<span title="${escHtml(exactTokTitle)}">In ${fmtCtxCompact(turn.inputTokens)} · Cache ${fmtCtxCompact(turn.cacheReadTokens)} · Out ${escHtml(outDetail)}</span>`,
       ].join('');
 
       row.append(top, stats);
@@ -2151,7 +2331,7 @@
 
     const cardRetry = document.createElement('div');
     cardRetry.className = 'tl-diag-stat';
-    cardRetry.innerHTML = `<span class="tl-diag-label">${escHtml(t('diagRetryCost'))}</span><span class="tl-diag-val">${retry.count || 0} / ${escHtml(fmtCompact(retry.totalTokens || 0))}</span><span class="tl-diag-sub">${escHtml(t('timingTool'))} ${escHtml(fmtSec(tm.totalToolSec))}</span>`;
+    cardRetry.innerHTML = `<span class="tl-diag-label">${escHtml(t('diagRetryCost'))}</span><span class="tl-diag-val" title="${escHtml(fmtStatTitle(retry.totalTokens || 0))}">${retry.count || 0} / ${escHtml(fmtStatCompact(retry.totalTokens || 0))}</span><span class="tl-diag-sub">${escHtml(t('timingTool'))} ${escHtml(fmtSec(tm.totalToolSec))}</span>`;
 
     grid.append(cardLat, cardRetry);
     pane.appendChild(grid);
@@ -2168,7 +2348,8 @@
       l.textContent = t('diagBudgetTitle');
       const r = document.createElement('span');
       r.className = 'tl-bk-val';
-      r.textContent = `${fmtCompact(budgets.customUsedTokens)} / ${fmtCompact(budgetCap)} (${pct.toFixed(1)}%)`;
+      r.textContent = `${fmtCtxCompact(budgets.customUsedTokens)} / ${fmtCtxCompact(budgetCap)} (${pct.toFixed(1)}%)`;
+      r.title = `${fmtCtxTitle(budgets.customUsedTokens)} / ${fmtCtxTitle(budgetCap)}`;
       head.append(l, r);
 
       const sub = document.createElement('div');
@@ -2218,7 +2399,8 @@
         const right = document.createElement('span');
         right.className = 'tl-bk-val';
         const durPart = item.totalDurationSec > 0 ? `${fmtSec(item.totalDurationSec)} · ` : '';
-        right.textContent = `${durPart}${fmtCompact(item.contextTokens)} tok`;
+        right.textContent = `${durPart}${fmtCtxCompact(item.contextTokens)} tok`;
+        right.title = fmtCtxTitle(item.contextTokens);
         row.append(left, right);
         list.appendChild(row);
       }
@@ -2275,12 +2457,14 @@
 
       const row1 = document.createElement('div');
       row1.className = 'tl-sub-meta-row';
-      const ctxStr = `${fmtCompact(sub.contextUsed)} / ${fmtCompact(sub.contextMax)} (${fmtPct(sub.contextPercent, true)})`;
-      const totStr = `${fmtCompact(sub.totalTokens)} tok · 🧊 ${fmtPct(sub.cacheHitRate)}`;
+      const ctxStr = `${fmtCtxCompact(sub.contextUsed)} / ${fmtCtxCompact(sub.contextMax)} (${fmtPct(sub.contextPercent, true)})`;
+      const totStr = `${fmtStatCompact(sub.totalTokens)} tok · 🧊 ${fmtPct(sub.cacheHitRate)}`;
       const s1 = document.createElement('span');
       s1.textContent = ctxStr;
+      s1.title = `${fmtCtxTitle(sub.contextUsed)} / ${fmtCtxTitle(sub.contextMax)}`;
       const s2 = document.createElement('span');
       s2.textContent = totStr;
+      s2.title = fmtStatTitle(sub.totalTokens);
       row1.append(s1, s2);
 
       const barWrap = document.createElement('div');
@@ -2631,6 +2815,7 @@
     $('input-max-tokens').value = currentLimit ? String(currentLimit) : '';
     $('input-warn-at').value = String(prefs.warnAt ?? 70);
     $('input-crit-at').value = String(prefs.criticalAt ?? 85);
+    $('input-unit-system').value = prefs.unitSystem || state.unitSystem || 'auto';
     populateWatchdogForm(prefs);
     switchSettingsTab(targetTab);
     $('settings-drawer').classList.remove('hidden');
@@ -2699,8 +2884,9 @@
     const rawLimit = $('input-max-tokens').value.trim();
     const warnAt = Number($('input-warn-at').value);
     const criticalAt = Number($('input-crit-at').value);
+    const unitSystem = $('input-unit-system').value || 'auto';
 
-    const payload = { warnAt, criticalAt };
+    const payload = { warnAt, criticalAt, unitSystem };
     if (key) {
       payload.contextLimitOverrides = {
         [key]: rawLimit ? Number(rawLimit) : null,
@@ -2712,7 +2898,11 @@
       body: JSON.stringify(payload),
     });
     if (res.ok) {
+      const saved = await res.json();
+      state.preferences = saved;
+      if (saved?.unitSystem) state.unitSystem = saved.unitSystem;
       $('settings-drawer').classList.add('hidden');
+      localizeStaticUi();
       state.etag = null;
       await refreshSnapshot(true);
     }
@@ -2775,7 +2965,18 @@
       if (state.emptyStatsOpen && !state.stats) void refreshStats(false);
       else renderStatsUi();
     });
-    $('quota-strip').addEventListener('click', () => {
+    $('btn-quota-strip-refresh').addEventListener('click', (e) => {
+      e.stopPropagation();
+      manualRefreshQuota();
+    });
+    $('quota-strip').addEventListener('keydown', (e) => {
+      if (e.target === $('quota-strip') && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        $('quota-strip').click();
+      }
+    });
+    $('quota-strip').addEventListener('click', (e) => {
+      if (e.target.closest('#btn-quota-strip-refresh')) return;
       const isEmptyView = !$('empty-state').classList.contains('hidden');
       if (isEmptyView) {
         state.emptyQuotaOpen = !state.emptyQuotaOpen;

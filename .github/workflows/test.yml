@@ -35,6 +35,7 @@ jobs:
           node --check sidecars/panel/metrics.mjs
           node --check sidecars/panel/transcript.mjs
           node --check sidecars/panel/store.mjs
+          node --check sidecars/panel/units.cjs
           node --check sidecars/panel/app.js
 
       - name: Verify DOM ID consistency

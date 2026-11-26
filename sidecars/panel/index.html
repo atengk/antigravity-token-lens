@@ -69,17 +69,20 @@
     </section>
 
     <!-- 全局账号配额脉冲条（空会话亦可直接观测，点击直达配额用量视图） -->
-    <button id="quota-strip" class="tl-quota-strip hidden" type="button">
+    <div id="quota-strip" class="tl-quota-strip hidden" role="button" tabindex="0">
       <div class="tl-quota-strip-head">
         <span class="tl-quota-strip-left">
           <span id="quota-strip-group" class="tl-quota-strip-group">--</span>
           <span id="quota-strip-badge" class="tl-quota-mini-badge">--</span>
           <span id="quota-strip-tier" class="tl-quota-tier-badge hidden">--</span>
         </span>
-        <span id="quota-strip-alert" class="tl-quota-risk-tag hidden">--</span>
+        <span class="tl-quota-strip-right">
+          <span id="quota-strip-alert" class="tl-quota-risk-tag hidden">--</span>
+          <button id="btn-quota-strip-refresh" class="tl-btn tl-btn-mini tl-quota-refresh-btn" type="button" aria-label="刷新配额" title="立即刷新账号配额"><span class="tl-refresh-glyph" aria-hidden="true">↻</span></button>
+        </span>
       </div>
       <div id="quota-strip-buckets" class="tl-quota-strip-buckets"></div>
-    </button>
+    </div>
 
     <!-- 可展开设置面板 -->
     <section id="settings-drawer" class="tl-card tl-settings hidden">
@@ -99,11 +102,11 @@
             <button id="btn-reset-limit" class="tl-btn tl-btn-ghost" type="button">恢复默认</button>
           </div>
           <div class="tl-preset-row">
-            <button class="tl-chip-btn" data-limit="128000" type="button">128K</button>
-            <button class="tl-chip-btn" data-limit="200000" type="button">200K</button>
-            <button class="tl-chip-btn" data-limit="512000" type="button">512K</button>
-            <button class="tl-chip-btn" data-limit="1048576" type="button">1M</button>
-            <button class="tl-chip-btn" data-limit="2097152" type="button">2M</button>
+            <button class="tl-chip-btn" data-limit="128000" title="128,000 tokens · 12.8万" type="button">128K</button>
+            <button class="tl-chip-btn" data-limit="200000" title="200,000 tokens · 20.0万" type="button">200K</button>
+            <button class="tl-chip-btn" data-limit="512000" title="512,000 tokens · 51.2万" type="button">512K</button>
+            <button class="tl-chip-btn" data-limit="1048576" title="1,048,576 tokens · 104.9万" type="button">1M</button>
+            <button class="tl-chip-btn" data-limit="2097152" title="2,097,152 tokens · 209.7万" type="button">2M</button>
           </div>
         </label>
         <div class="tl-two-fields">
@@ -116,6 +119,14 @@
             <input id="input-crit-at" type="number" min="15" max="99">
           </label>
         </div>
+        <label class="tl-field">
+          <span id="lbl-unit-system">统计展示单位制</span>
+          <select id="input-unit-system">
+            <option value="auto">跟随语言（中文用万/亿，英文用 K/M/B）</option>
+            <option value="zh">中文大数 (万 / 亿)</option>
+            <option value="intl">国际缩写 (K / M / B)</option>
+          </select>
+        </label>
         <div class="tl-settings-foot">
           <button id="btn-save-settings" class="tl-btn tl-btn-primary" type="button">保存配置</button>
         </div>
@@ -342,6 +353,7 @@
       </section>
     </main>
   </div>
+  <script src="/units.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

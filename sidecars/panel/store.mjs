@@ -7,10 +7,14 @@
 
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { normalizeAlertChannels, redactAlertChannels } from './notifier.mjs';
+
+const require = createRequire(import.meta.url);
+const { VALID_UNIT_SYSTEMS } = require('./units.cjs');
 
 export const DEFAULT_WATCHDOG_PREFERENCES = Object.freeze({
   enabled: true,
@@ -24,6 +28,7 @@ export const DEFAULT_WATCHDOG_PREFERENCES = Object.freeze({
 
 export const DEFAULT_PREFERENCES = Object.freeze({
   lang: 'zh-CN',
+  unitSystem: 'auto',
   warnAt: 70,
   criticalAt: 85,
   contextLimitOverrides: {},
@@ -118,11 +123,13 @@ export function normalizeWatchdogPreferences(raw, base = DEFAULT_WATCHDOG_PREFER
  *
  * @param {unknown} raw 原始偏好输入
  * @param {object} [base=DEFAULT_PREFERENCES] 基础默认值
- * @return {{ lang: string, warnAt: number, criticalAt: number, contextLimitOverrides: Record<string, number>, watchdog: object }}
+ * @return {{ lang: string, unitSystem: string, warnAt: number, criticalAt: number, contextLimitOverrides: Record<string, number>, watchdog: object }}
  */
 export function normalizePreferences(raw, base = DEFAULT_PREFERENCES) {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const lang = VALID_LANGS.has(src.lang) ? src.lang : base.lang;
+  const fallbackUnit = VALID_UNIT_SYSTEMS.has(base.unitSystem) ? base.unitSystem : DEFAULT_PREFERENCES.unitSystem;
+  const unitSystem = VALID_UNIT_SYSTEMS.has(src.unitSystem) ? src.unitSystem : fallbackUnit;
 
   const warnRaw = Number(src.warnAt);
   const warnAt = Number.isInteger(warnRaw) && warnRaw >= 10 && warnRaw <= 95 ? warnRaw : base.warnAt;
@@ -151,7 +158,7 @@ export function normalizePreferences(raw, base = DEFAULT_PREFERENCES) {
 
   const watchdog = normalizeWatchdogPreferences(src.watchdog, base.watchdog || DEFAULT_WATCHDOG_PREFERENCES);
 
-  return { lang, warnAt, criticalAt, contextLimitOverrides: overrides, watchdog };
+  return { lang, unitSystem, warnAt, criticalAt, contextLimitOverrides: overrides, watchdog };
 }
 
 /**
@@ -189,7 +196,7 @@ export class PreferencesStore {
   /**
    * 读取当前偏好配置（不存在或损坏时回退默认值）。
    *
-   * @return {Promise<{ lang: string, warnAt: number, criticalAt: number, contextLimitOverrides: Record<string, number> }>}
+   * @return {Promise<{ lang: string, unitSystem: string, warnAt: number, criticalAt: number, contextLimitOverrides: Record<string, number>, watchdog: object }>}
    */
   async load() {
     if (this.#cached) return structuredClone(this.#cached);
@@ -213,7 +220,7 @@ export class PreferencesStore {
    * 合并更新并原子写入偏好配置。
    *
    * @param {object} patch 待合并字段
-   * @return {Promise<{ lang: string, warnAt: number, criticalAt: number, contextLimitOverrides: Record<string, number> }>}
+   * @return {Promise<{ lang: string, unitSystem: string, warnAt: number, criticalAt: number, contextLimitOverrides: Record<string, number>, watchdog: object }>}
    */
   async update(patch) {
     const task = this.#writeQueue.catch(() => {}).then(async () => {

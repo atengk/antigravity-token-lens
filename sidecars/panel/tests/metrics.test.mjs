@@ -8,6 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildMarkdownSummary,
   computeMetricsFromProjection,
   computeMetricsFromTranscript,
   finalizeSnapshot,
@@ -553,4 +554,58 @@ test('computeMetricsFromProjection 精确识别 8 类 tokenBreakdown 原生分�
   const keys = m.context.breakdown.groups.map((g) => g.key);
   assert.deepEqual(keys, ['system', 'mcp', 'subagents', 'skills', 'plugins', 'rules', 'tools', 'chat']);
   assert.equal(m.diagnostics.budgets.customUsedTokens, 595 + 2885 + 4077 + 1624 + 5887);
+});
+
+test('finalizeSnapshot 与 buildMarkdownSummary 遵循上下文固定 K/M、统计随展示单位制的二分口径', () => {
+  const proj = {
+    summary: { summary: 'Unit Summary Test', status: 'IDLE', stepCount: 2 },
+    steps: [
+      { index: 0, type: 'USER_INPUT', status: 'DONE' },
+      { index: 1, type: 'PLANNER_RESPONSE', status: 'DONE' },
+    ],
+    generatorMetadata: [
+      {
+        index: 0,
+        stepIndices: [1],
+        model: 'MODEL_PLACEHOLDER_M525',
+        modelDisplayName: 'Gemini 4 Hydrogen (High)',
+        streamingDuration: '2.0s',
+        timeToFirstToken: '1.0s',
+        usage: { inputTokens: 20000, cacheReadTokens: 420000, outputTokens: 1000 },
+        contextWindow: {
+          estimatedTokensUsed: 440000,
+          maxContextTokens: 512000,
+          tokenBreakdown: {
+            totalTokens: 440000,
+            groups: [
+              { name: 'System Prompt', type: 'TOKEN_TYPE_SYSTEM_PROMPT', numTokens: 20000, children: [] },
+              { name: 'Chat Messages', type: 'TOKEN_TYPE_CHAT_MESSAGES', numTokens: 420000, children: [] },
+            ],
+          },
+        },
+      },
+    ],
+  };
+
+  const primary = computeMetricsFromProjection('conv-unit', proj, { warnAt: 70, criticalAt: 85 });
+
+  const zhAuto = finalizeSnapshot(primary, [], { lang: 'zh-CN', unitSystem: 'auto' });
+  assert.match(zhAuto.markdownSummary, /\*\*上下文水位\*\*: 440\.0K \/ 512\.0K/);
+  assert.match(zhAuto.markdownSummary, /\*\*上下文构成\*\*: System Prompt: 20\.0K \(4\.5%\) \| Chat Messages: 420\.0K \(95\.5%\)/);
+  assert.match(zhAuto.markdownSummary, /已节省 42\.0万 tok/);
+  assert.match(zhAuto.markdownSummary, /\*\*会话总消耗\*\*: 44\.1万 \(主会话 44\.1万/);
+
+  const zhIntl = finalizeSnapshot(primary, [], { lang: 'zh-CN', unitSystem: 'intl' });
+  assert.match(zhIntl.markdownSummary, /\*\*上下文水位\*\*: 440\.0K \/ 512\.0K/);
+  assert.match(zhIntl.markdownSummary, /已节省 420\.0K tok/);
+  assert.match(zhIntl.markdownSummary, /\*\*会话总消耗\*\*: 441\.0K/);
+
+  const enZh = finalizeSnapshot(primary, [], { lang: 'en', unitSystem: 'zh' });
+  assert.match(enZh.markdownSummary, /\*\*Context\*\*: 440\.0K \/ 512\.0K/);
+  assert.match(enZh.markdownSummary, /Saved 42\.0万 tok/);
+  assert.match(enZh.markdownSummary, /\*\*Session Total\*\*: 44\.1万/);
+
+  const legacyEn = buildMarkdownSummary(zhAuto, 'en');
+  assert.match(legacyEn, /\*\*Context\*\*: 440\.0K \/ 512\.0K/);
+  assert.match(legacyEn, /Saved 420\.0K tok/);
 });

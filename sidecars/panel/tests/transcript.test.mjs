@@ -78,15 +78,18 @@ test('PreferencesStore 支持原子更新、阈值校对与覆盖清除', async 
     const store = new PreferencesStore(dir);
     const init = await store.load();
     assert.equal(init.lang, 'zh-CN');
+    assert.equal(init.unitSystem, 'auto');
     assert.equal(init.warnAt, 70);
 
     const updated = await store.update({
       lang: 'en',
+      unitSystem: 'intl',
       warnAt: 65,
       criticalAt: 90,
       contextLimitOverrides: { 'gemini-4-hydrogen': 1_048_576 },
     });
     assert.equal(updated.lang, 'en');
+    assert.equal(updated.unitSystem, 'intl');
     assert.equal(updated.warnAt, 65);
     assert.equal(updated.criticalAt, 90);
     assert.equal(updated.contextLimitOverrides['gemini-4-hydrogen'], 1_048_576);
@@ -97,9 +100,10 @@ test('PreferencesStore 支持原子更新、阈值校对与覆盖清除', async 
     });
     assert.equal(cleared.contextLimitOverrides['gemini-4-hydrogen'], undefined);
 
-    // 校验非法阈值防御
-    const safe = normalizePreferences({ warnAt: 90, criticalAt: 80 });
+    // 校验非法阈值与无效单位制防御
+    const safe = normalizePreferences({ warnAt: 90, criticalAt: 80, unitSystem: 'invalid-unit' });
     assert.ok(safe.criticalAt > safe.warnAt);
+    assert.equal(safe.unitSystem, 'auto');
 
     // Watchdog 配置持久化、凭据掩码回显与保留未修改密钥
     const withChannel = await store.update({
